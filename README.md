@@ -1,3 +1,5 @@
+# 조경마루 AI ERP v3.0 통합본
+
 # 조경마루 AI ERP v2.0 - Drive·Invoice 자동화
 
 React + FastAPI + PostgreSQL 기반의 조경마루 업무관리 시스템입니다.
@@ -156,3 +158,36 @@ HWP 원본 자동편집이 반드시 필요하면 Windows PC 또는 Windows 서�
 - 전체 모습 사진 1장, 꽃 근접 사진 1장 분리 선택
 - 선택 사진 DOCX 삽입 및 ZIP 포함
 - ZIP 생성 시 저장된 최종 초안 사용
+
+
+## v3.0 확정 업무 흐름
+
+### Shipment Overview에 품종이 있는 경우
+1. Shipment Overview 전체 시트에서 품종 검색
+2. 검색된 행의 H열 값을 Shipment 식별값으로 사용
+3. `IMPORT_2026_FOLDER_ID` 바로 아래에서 동일·유사 이름의 폴더 검색
+4. 해당 폴더 안의 Invoice 파일 사용
+5. 해당 품종 행만 남기는 신고용 인보이스 생성
+
+### Shipment Overview에 품종이 없는 경우
+1. `2026수입` 하위 폴더를 제한적으로 검색
+2. 내용에 `Tulipa`가 포함된 아무 Invoice를 양식으로 사용
+3. 신고용 인보이스 발췌본 생성
+
+### 신고 초안과 사진
+- 초안 수정 및 DB 저장
+- 전체 모습 1장 + 꽃 근접 1장 분리 선택
+- 저장한 초안 내용을 DOCX에 반영
+- 사진을 DOCX와 ZIP에 포함
+
+## 충돌 없이 적용하는 권장 방법
+
+기존 폴더 위에서 Pull과 덮어쓰기를 반복하지 말고:
+
+1. GitHub Desktop에서 현재 충돌 창의 `Abort Merge` 선택
+2. 이 ZIP을 새 폴더에 압축 해제
+3. 기존 프로젝트의 `.git` 폴더만 새 폴더로 복사
+4. GitHub Desktop에서 새 폴더를 Repository로 선택
+5. 모든 변경을 한 번에 Commit 후 Push
+
+환경변수는 기존 Render 값을 그대로 유지합니다.
