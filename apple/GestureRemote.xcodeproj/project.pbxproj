@@ -1,0 +1,518 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		22C1838072615CFD4814A876 /* MacRemoteServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFD04ABCF83CE7CD63EAC998 /* MacRemoteServer.swift */; };
+		249F4393BE25590AF025A985 /* MacInputController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66DF915BDDF08076F3D6B734 /* MacInputController.swift */; };
+		4379DAD57787A00E723BEE7B /* GestureRemoteWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F7E167AAABC6CD7D443303F /* GestureRemoteWatchApp.swift */; };
+		4468FAEDC876D36C9F09E917 /* RemoteBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 670D7C362EDC85CA10AA04F6 /* RemoteBridge.swift */; };
+		4F7645104E943AB44049A974 /* GestureRemoteApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0D0EBD8B1DCCDCBAD581EE /* GestureRemoteApp.swift */; };
+		55D5EF23F607298C51E60475 /* GestureRemoteMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EF6063C858D5A4F7A9BB349 /* GestureRemoteMacApp.swift */; };
+		64C5C112E87E70DA6F5ACDCC /* GestureRemoteWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = DF6D11D322A2A493B525C29F /* GestureRemoteWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		6BCCBFD6670A9D7D6600CBD6 /* WatchContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42AAB7E062E7717E0898C67E /* WatchContentView.swift */; };
+		A99BDFF947FD680EDB976F68 /* LocalAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7484A9EDD720F10803E126D4 /* LocalAddress.swift */; };
+		CE9E1EC20811F0A97D3CBE39 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9818F19BE9EC40578D897C8 /* ContentView.swift */; };
+		E6F5671C8D93411E9E005001 /* WatchConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A182307FEE99B35F9808AAE6 /* WatchConnection.swift */; };
+		F9721CE29BA62282FB9A158B /* GestureDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4DFC189C9B193343669D0D0 /* GestureDetector.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		7702EB7B83BB545EFCEC2825 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1814AA4E0C591AC1BA0D7214 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 26A1E0FB028039E9B87F38BF;
+			remoteInfo = GestureRemoteWatch;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		2B90E32AD21044309C020919 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				64C5C112E87E70DA6F5ACDCC /* GestureRemoteWatch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		13FD13301F7A8ED0BA6787D8 /* GestureRemoteMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GestureRemoteMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1CEABA6C6BE57614688C781E /* GestureRemote.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GestureRemote.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4113F71CB17EA5933A6464CF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		42AAB7E062E7717E0898C67E /* WatchContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchContentView.swift; sourceTree = "<group>"; };
+		5EF6063C858D5A4F7A9BB349 /* GestureRemoteMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureRemoteMacApp.swift; sourceTree = "<group>"; };
+		66DF915BDDF08076F3D6B734 /* MacInputController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacInputController.swift; sourceTree = "<group>"; };
+		670D7C362EDC85CA10AA04F6 /* RemoteBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteBridge.swift; sourceTree = "<group>"; };
+		7484A9EDD720F10803E126D4 /* LocalAddress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAddress.swift; sourceTree = "<group>"; };
+		8F7E167AAABC6CD7D443303F /* GestureRemoteWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureRemoteWatchApp.swift; sourceTree = "<group>"; };
+		A182307FEE99B35F9808AAE6 /* WatchConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchConnection.swift; sourceTree = "<group>"; };
+		B3E4BD4513FB2A1BF8384B5B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		B4DFC189C9B193343669D0D0 /* GestureDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureDetector.swift; sourceTree = "<group>"; };
+		C9818F19BE9EC40578D897C8 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		CD0D0EBD8B1DCCDCBAD581EE /* GestureRemoteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureRemoteApp.swift; sourceTree = "<group>"; };
+		DF6D11D322A2A493B525C29F /* GestureRemoteWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GestureRemoteWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		EFD04ABCF83CE7CD63EAC998 /* MacRemoteServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRemoteServer.swift; sourceTree = "<group>"; };
+		F029B349AFC5CBC7B90BC39B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		0AA738F96C05BC1917E90657 /* iPhoneApp */ = {
+			isa = PBXGroup;
+			children = (
+				C9818F19BE9EC40578D897C8 /* ContentView.swift */,
+				CD0D0EBD8B1DCCDCBAD581EE /* GestureRemoteApp.swift */,
+				F029B349AFC5CBC7B90BC39B /* Info.plist */,
+				670D7C362EDC85CA10AA04F6 /* RemoteBridge.swift */,
+			);
+			path = iPhoneApp;
+			sourceTree = "<group>";
+		};
+		2A6F1BEB603757F7E717C296 = {
+			isa = PBXGroup;
+			children = (
+				0AA738F96C05BC1917E90657 /* iPhoneApp */,
+				A47DB06005CDFD84D9DBEF12 /* MacApp */,
+				B345908DC18AAC8E4BD6F68E /* WatchApp */,
+				5BAD01A78CCE7DB99A8B2FB3 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		5BAD01A78CCE7DB99A8B2FB3 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				1CEABA6C6BE57614688C781E /* GestureRemote.app */,
+				13FD13301F7A8ED0BA6787D8 /* GestureRemoteMac.app */,
+				DF6D11D322A2A493B525C29F /* GestureRemoteWatch.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A47DB06005CDFD84D9DBEF12 /* MacApp */ = {
+			isa = PBXGroup;
+			children = (
+				5EF6063C858D5A4F7A9BB349 /* GestureRemoteMacApp.swift */,
+				B3E4BD4513FB2A1BF8384B5B /* Info.plist */,
+				7484A9EDD720F10803E126D4 /* LocalAddress.swift */,
+				66DF915BDDF08076F3D6B734 /* MacInputController.swift */,
+				EFD04ABCF83CE7CD63EAC998 /* MacRemoteServer.swift */,
+			);
+			path = MacApp;
+			sourceTree = "<group>";
+		};
+		B345908DC18AAC8E4BD6F68E /* WatchApp */ = {
+			isa = PBXGroup;
+			children = (
+				B4DFC189C9B193343669D0D0 /* GestureDetector.swift */,
+				8F7E167AAABC6CD7D443303F /* GestureRemoteWatchApp.swift */,
+				4113F71CB17EA5933A6464CF /* Info.plist */,
+				A182307FEE99B35F9808AAE6 /* WatchConnection.swift */,
+				42AAB7E062E7717E0898C67E /* WatchContentView.swift */,
+			);
+			path = WatchApp;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		26A1E0FB028039E9B87F38BF /* GestureRemoteWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B267DB0515C0BD4E1FC5ED4A /* Build configuration list for PBXNativeTarget "GestureRemoteWatch" */;
+			buildPhases = (
+				2F106195FA0C3450D46E5D3D /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = GestureRemoteWatch;
+			packageProductDependencies = (
+			);
+			productName = GestureRemoteWatch;
+			productReference = DF6D11D322A2A493B525C29F /* GestureRemoteWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
+		D0C955A2DFF5E5334F3F5287 /* GestureRemote */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F449E2D68B76A65425753543 /* Build configuration list for PBXNativeTarget "GestureRemote" */;
+			buildPhases = (
+				2CDF38333896C7F35413EC0E /* Sources */,
+				2B90E32AD21044309C020919 /* Embed Watch Content */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E1D32AECC65C1C98F75DA924 /* PBXTargetDependency */,
+			);
+			name = GestureRemote;
+			packageProductDependencies = (
+			);
+			productName = GestureRemote;
+			productReference = 1CEABA6C6BE57614688C781E /* GestureRemote.app */;
+			productType = "com.apple.product-type.application";
+		};
+		D1242D7CA95BA7D564ACF916 /* GestureRemoteMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BDCD644209CB05F6965F3939 /* Build configuration list for PBXNativeTarget "GestureRemoteMac" */;
+			buildPhases = (
+				64EDB3EBF766DE0122EF9B7A /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = GestureRemoteMac;
+			packageProductDependencies = (
+			);
+			productName = GestureRemoteMac;
+			productReference = 13FD13301F7A8ED0BA6787D8 /* GestureRemoteMac.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		1814AA4E0C591AC1BA0D7214 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					D1242D7CA95BA7D564ACF916 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = AB84C0536BACAE26984D5960 /* Build configuration list for PBXProject "GestureRemote" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 2A6F1BEB603757F7E717C296;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5BAD01A78CCE7DB99A8B2FB3 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				D0C955A2DFF5E5334F3F5287 /* GestureRemote */,
+				D1242D7CA95BA7D564ACF916 /* GestureRemoteMac */,
+				26A1E0FB028039E9B87F38BF /* GestureRemoteWatch */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		2CDF38333896C7F35413EC0E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CE9E1EC20811F0A97D3CBE39 /* ContentView.swift in Sources */,
+				4F7645104E943AB44049A974 /* GestureRemoteApp.swift in Sources */,
+				4468FAEDC876D36C9F09E917 /* RemoteBridge.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2F106195FA0C3450D46E5D3D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F9721CE29BA62282FB9A158B /* GestureDetector.swift in Sources */,
+				4379DAD57787A00E723BEE7B /* GestureRemoteWatchApp.swift in Sources */,
+				E6F5671C8D93411E9E005001 /* WatchConnection.swift in Sources */,
+				6BCCBFD6670A9D7D6600CBD6 /* WatchContentView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		64EDB3EBF766DE0122EF9B7A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				55D5EF23F607298C51E60475 /* GestureRemoteMacApp.swift in Sources */,
+				A99BDFF947FD680EDB976F68 /* LocalAddress.swift in Sources */,
+				249F4393BE25590AF025A985 /* MacInputController.swift in Sources */,
+				22C1838072615CFD4814A876 /* MacRemoteServer.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		E1D32AECC65C1C98F75DA924 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 26A1E0FB028039E9B87F38BF /* GestureRemoteWatch */;
+			targetProxy = 7702EB7B83BB545EFCEC2825 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		058B9350613ADB1BC3D736FB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 9742DT67TB;
+				INFOPLIST_FILE = iPhoneApp/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.yoosungmu.gestureremote;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		4262E1ACBDC456997D4EC8C0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				DEVELOPMENT_TEAM = 9742DT67TB;
+				INFOPLIST_FILE = WatchApp/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yoosungmu.gestureremote.watchkitapp;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+			};
+			name = Release;
+		};
+		54E677B9EF9D5FBE3477CCC9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 9742DT67TB;
+				INFOPLIST_FILE = MacApp/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yoosungmu.gestureremote.mac;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		580B479B19731EE8B6C4580A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+			};
+			name = Release;
+		};
+		7073BC1D334B466C597E0EC4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+			};
+			name = Debug;
+		};
+		AF90627E081D5FC4D5B7E55D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 9742DT67TB;
+				INFOPLIST_FILE = MacApp/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yoosungmu.gestureremote.mac;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		B4D0AB792C84D895AE7F27ED /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				DEVELOPMENT_TEAM = 9742DT67TB;
+				INFOPLIST_FILE = WatchApp/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yoosungmu.gestureremote.watchkitapp;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+			};
+			name = Debug;
+		};
+		BDE71D59F9467F3C8B2DB4A1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 9742DT67TB;
+				INFOPLIST_FILE = iPhoneApp/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.yoosungmu.gestureremote;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AB84C0536BACAE26984D5960 /* Build configuration list for PBXProject "GestureRemote" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7073BC1D334B466C597E0EC4 /* Debug */,
+				580B479B19731EE8B6C4580A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B267DB0515C0BD4E1FC5ED4A /* Build configuration list for PBXNativeTarget "GestureRemoteWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B4D0AB792C84D895AE7F27ED /* Debug */,
+				4262E1ACBDC456997D4EC8C0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		BDCD644209CB05F6965F3939 /* Build configuration list for PBXNativeTarget "GestureRemoteMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AF90627E081D5FC4D5B7E55D /* Debug */,
+				54E677B9EF9D5FBE3477CCC9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F449E2D68B76A65425753543 /* Build configuration list for PBXNativeTarget "GestureRemote" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BDE71D59F9467F3C8B2DB4A1 /* Debug */,
+				058B9350613ADB1BC3D736FB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 1814AA4E0C591AC1BA0D7214 /* Project object */;
+}
