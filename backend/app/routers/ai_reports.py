@@ -235,7 +235,6 @@ def generate_files(
     headers = {
         "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
         "X-Workflow-Shipment": str(manifest["shipment_overview"]["shipment"]),
-        "X-Invoice-Mode": quote(str(manifest["invoice_processing"])),
     }
     return StreamingResponse(
         io.BytesIO(zip_bytes),
