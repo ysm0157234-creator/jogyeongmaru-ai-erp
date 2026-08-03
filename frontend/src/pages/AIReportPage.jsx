@@ -20,6 +20,7 @@ export default function AIReportPage() {
   const [selectedImages, setSelectedImages] = useState(["commons-01", "commons-02"]);
   const [driveStatus, setDriveStatus] = useState(null);
   const [fileLoading, setFileLoading] = useState(false);
+  const [fileStatus, setFileStatus] = useState("");
 
   async function loadDriveStatus() {
     try {
@@ -32,23 +33,21 @@ export default function AIReportPage() {
   async function generateFiles() {
     setFileLoading(true);
     setError("");
+    setFileStatus("Google Drive에서 품종, Shipment, 인보이스를 검색하고 있습니다.");
     try {
-      const response = await apiDownload("/api/ai-reports/generate-files", {
-        method: "POST",
-        body: JSON.stringify({ variety_name: varietyName, agency }),
-      });
+      const response = await apiDownload("/api/ai-reports/generate-files", { method: "POST", body: JSON.stringify({ variety_name: varietyName, agency }) });
       const blob = await response.blob();
+      if (!blob.size) throw new Error("서버가 빈 ZIP 파일을 반환했습니다.");
+      const disposition = response.headers.get("content-disposition") || "";
+      const nameMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+      const filename = nameMatch ? decodeURIComponent(nameMatch[1]) : "Tulipa_Sunlover_생산판매신고_자동생성.zip";
       const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = "Tulipa_Sunlover_생산판매신고_자동생성.zip";
-      anchor.click();
-      URL.revokeObjectURL(url);
+      const link = document.createElement("a"); link.href = url; link.download = filename; document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setFileStatus(`완료: ${filename} 다운로드가 시작됐습니다. 다운로드 폴더를 확인하세요.`);
     } catch (err) {
-      setError(err.message);
-    } finally {
-      setFileLoading(false);
-    }
+      const message = err?.message || "ZIP 생성에 실패했습니다."; setError(message); setFileStatus(`실패: ${message}`);
+    } finally { setFileLoading(false); }
   }
 
   async function generate(event) {
@@ -159,6 +158,12 @@ export default function AIReportPage() {
               {fileLoading ? <LoaderCircle size={18} className="spin" /> : <FileSearch size={18} />}
               {fileLoading ? "파일 생성 중..." : "신고서·인보이스 ZIP 생성"}
             </button>
+            {fileStatus && (
+              <div className={`file-status-message ${fileStatus.startsWith("실패") ? "failed" : fileStatus.startsWith("완료") ? "success" : "working"}`}>
+                {fileLoading && <LoaderCircle size={17} className="spin" />}
+                <span>{fileStatus}</span>
+              </div>
+            )}
             {!driveStatus?.configured && (
               <div className="warning-box">
                 Render API Environment에 GOOGLE_SERVICE_ACCOUNT_JSON을 먼저 등록하세요.

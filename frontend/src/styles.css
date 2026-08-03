@@ -805,3 +805,5 @@ input:focus, select:focus, textarea:focus {
   .drive-status, .actual-file-box { grid-template-columns: 1fr; display: grid; }
   .drive-status small { text-align: left; }
 }
+
+.file-status-message{grid-column:1/-1;display:flex;align-items:center;gap:9px;padding:14px 16px;border-radius:13px;font-size:13px;font-weight:700}.file-status-message.working{background:#eef6ff;color:#1b64da;border:1px solid #cfe2ff}.file-status-message.success{background:#eefbf4;color:#14804a;border:1px solid #bce8cf}.file-status-message.failed{background:#fff1f1;color:#d14343;border:1px solid #ffc9c9}

@@ -106,3 +106,8 @@ def create_invoice_extract_xlsx(
     buffer = io.BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
+
+def pdf_contains(data: bytes, terms: list[str]) -> bool:
+    reader = PdfReader(io.BytesIO(data))
+    targets = [normalize(t) for t in terms if t]
+    return any(any(t and t in normalize(page.extract_text() or "") for t in targets) for page in reader.pages)
