@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     admin_password: str = "ChangeMe123!"
     cors_origins: str = "*"
 
+    google_service_account_json: str = ""
+    shipment_overview_file_id: str = ""
+    import_2026_folder_id: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=False,
@@ -21,6 +25,7 @@ class Settings(BaseSettings):
         if self.cors_origins.strip() == "*":
             return ["*"]
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
 
 @lru_cache
 def get_settings() -> Settings:
