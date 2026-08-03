@@ -6,7 +6,7 @@ from urllib.parse import quote
 from app.core.database import get_db
 from app.models.ai_draft import AIDraft
 from app.models.user import User
-from app.schemas.ai_draft import AIGenerateRequest, AIDraftResponse
+from app.schemas.ai_draft import AIGenerateRequest, AIFileGenerateRequest, AIDraftUpdateRequest, AIDraftResponse
 from .deps import get_current_user
 from app.services.workflow import run_workflow
 from app.services.drive_service import DriveNotConfiguredError
@@ -103,6 +103,7 @@ SUNLOVER_RESULT = {
             "source": "Wikimedia Commons",
             "license": "Commons 원본 페이지에서 라이선스 확인",
             "recommended": True,
+            "role": "overall",
         },
         {
             "id": "commons-02",
@@ -112,8 +113,10 @@ SUNLOVER_RESULT = {
             "source": "Wikimedia Commons",
             "license": "Commons 원본 페이지에서 라이선스 확인",
             "recommended": True,
+            "role": "closeup",
         },
     ],
+    "selected_images": {"overall": "commons-01", "closeup": "commons-02"},
     "required_documents": [
         {"name": "품종의 특성 설명", "status": "초안 생성"},
         {"name": "품종의 육성과정", "status": "초안 생성"},
@@ -167,6 +170,28 @@ def generate_ai_report(
     db.refresh(draft)
     return draft
 
+@router.put("/{draft_id}", response_model=AIDraftResponse)
+def update_ai_draft(
+    draft_id: int,
+    payload: AIDraftUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    draft = db.get(AIDraft, draft_id)
+    if not draft or draft.created_by != current_user.id:
+        raise HTTPException(status_code=404, detail="AI 신고 초안을 찾을 수 없습니다.")
+    selected = payload.result_data.get("selected_images", {})
+    if not selected.get("overall") or not selected.get("closeup"):
+        raise HTTPException(status_code=422, detail="전체 모습 사진과 꽃 근접 사진을 각각 선택해야 합니다.")
+    if selected["overall"] == selected["closeup"]:
+        raise HTTPException(status_code=422, detail="전체 모습과 꽃 근접 사진은 서로 달라야 합니다.")
+    draft.result_data = payload.result_data
+    draft.status = payload.status
+    db.add(draft)
+    db.commit()
+    db.refresh(draft)
+    return draft
+
 @router.get("", response_model=list[AIDraftResponse])
 def list_ai_drafts(
     db: Session = Depends(get_db),
@@ -203,7 +228,8 @@ def drive_status(_: User = Depends(get_current_user)):
 
 @router.post("/generate-files")
 def generate_files(
-    payload: AIGenerateRequest,
+    payload: AIFileGenerateRequest,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     normalized = normalize_name(payload.variety_name)
@@ -219,8 +245,15 @@ def generate_files(
             status_code=404,
             detail="현재 시험 버전은 Tulipa spp. Sunlover만 파일 생성할 수 있습니다.",
         )
+    draft_data = None
+    if payload.draft_id is not None:
+        draft = db.get(AIDraft, payload.draft_id)
+        if not draft or draft.created_by != current_user.id:
+            raise HTTPException(status_code=404, detail="AI 신고 초안을 찾을 수 없습니다.")
+        draft_data = draft.result_data
+
     try:
-        zip_bytes, manifest = run_workflow(payload.variety_name)
+        zip_bytes, manifest = run_workflow(payload.variety_name, draft_data=draft_data)
     except DriveNotConfiguredError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except LookupError as exc:
@@ -231,14 +264,8 @@ def generate_files(
             detail=f"파일 자동생성 중 오류가 발생했습니다: {exc}",
         ) from exc
 
-    filename = "Tulipa_Sunlover_생산판매신고_자동생성.zip"
-    headers = {
-        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
-        "X-Workflow-Shipment": str(manifest["shipment_overview"]["shipment"]),
-        "X-Invoice-Mode": quote(str(manifest["invoice_processing"])),
-    }
     return StreamingResponse(
         io.BytesIO(zip_bytes),
         media_type="application/zip",
-        headers=headers,
+        headers={"Content-Disposition": 'attachment; filename="Tulipa_Sunlover.zip"'},
     )

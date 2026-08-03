@@ -99,6 +99,70 @@ class GoogleDriveService:
                     queue.append((item.id, depth + 1))
         return found
 
+
+    @staticmethod
+    def _escape_query(value: str) -> str:
+        return value.replace("\\", "\\\\").replace("'", "\\'")
+
+    def search_files(
+        self,
+        text: str,
+        *,
+        name_only: bool = False,
+        mime_types: list[str] | None = None,
+        limit: int = 100,
+    ) -> list[DriveFile]:
+        escaped = self._escape_query(text.strip())
+        if not escaped:
+            return []
+
+        field = "name" if name_only else "fullText"
+        query_parts = [
+            f"{field} contains '{escaped}'",
+            "trashed = false",
+        ]
+        if mime_types:
+            mime_query = " or ".join(
+                f"mimeType = '{self._escape_query(mime)}'"
+                for mime in mime_types
+            )
+            query_parts.append(f"({mime_query})")
+
+        response = self.client.files().list(
+            q=" and ".join(query_parts),
+            fields="files(id,name,mimeType,parents,webViewLink)",
+            pageSize=min(limit, 1000),
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+        ).execute()
+
+        return [
+            DriveFile(
+                id=data["id"],
+                name=data["name"],
+                mime_type=data["mimeType"],
+                parents=data.get("parents", []),
+                web_view_link=data.get("webViewLink"),
+            )
+            for data in response.get("files", [])
+        ]
+
+    def search_filename_terms(
+        self,
+        terms: list[str],
+        *,
+        limit_each: int = 100,
+    ) -> list[DriveFile]:
+        unique: dict[str, DriveFile] = {}
+        for term in terms:
+            for item in self.search_files(
+                term,
+                name_only=True,
+                limit=limit_each,
+            ):
+                unique[item.id] = item
+        return list(unique.values())
+
     def download(self, file_id: str) -> bytes:
         request = self.client.files().get_media(fileId=file_id, supportsAllDrives=True)
         buffer = io.BytesIO()

@@ -1,20 +1,11 @@
-
 from __future__ import annotations
-
 import io
 from datetime import date
-from typing import Any
-
 from docx import Document
-from docx.shared import Mm, Pt
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.pdfgen import canvas
+from docx.shared import Mm
 
 COMPANY = {
     "representative": "황수영",
-    "birth_date": "1985. 5. 15.",
     "address": "경기도 평택시 진위면 서촌로 38-9",
     "company_name": "농업회사법인 주식회사 조경마루",
     "phone": "010-9377-3058",
@@ -30,6 +21,8 @@ def build_docx(
     breeding_process: str,
     origin_country: str = "네덜란드",
     quarantine_number: str = "최종 확인 필요",
+    overall_image: bytes | None = None,
+    closeup_image: bytes | None = None,
 ) -> bytes:
     doc = Document()
     section = doc.sections[0]
@@ -43,7 +36,7 @@ def build_docx(
 
     table = doc.add_table(rows=0, cols=2)
     table.style = "Table Grid"
-    rows = [
+    for label, value in [
         ("신고 구분", "수입 판매"),
         ("신고인", COMPANY["representative"]),
         ("법인 명칭", COMPANY["company_name"]),
@@ -52,11 +45,10 @@ def build_docx(
         ("학명 및 일반명", f"{korean_name}, {scientific_name}"),
         ("품종 명칭", variety_name),
         ("수입국(원산지)", origin_country),
-        ("Shipment 번호", shipment_number),
+        ("Shipment", shipment_number),
         ("종자업 등록번호", COMPANY["seed_business_number"]),
         ("검역합격 서류 발급번호", quarantine_number),
-    ]
-    for label, value in rows:
+    ]:
         cells = table.add_row().cells
         cells[0].text = label
         cells[1].text = value
@@ -70,14 +62,18 @@ def build_docx(
     doc.add_paragraph(f"종자 또는 묘목 생산지 : {origin_country}")
     doc.add_paragraph(breeding_process)
 
-    doc.add_heading("첨부서류", level=1)
-    for item in [
-        "품종 사진 2장",
-        "검역합격증",
-        "신고용 인보이스",
-        "품종의 생산·수입판매 신고 시료제출 확약서",
-    ]:
-        doc.add_paragraph(item, style="List Bullet")
+    doc.add_heading("품종 사진", level=1)
+    doc.add_paragraph("사진 1. 품종 전체 모습")
+    if overall_image:
+        doc.add_picture(io.BytesIO(overall_image), width=Mm(135))
+    else:
+        doc.add_paragraph("사진 내려받기 실패")
+
+    doc.add_paragraph("사진 2. 꽃 근접 모습")
+    if closeup_image:
+        doc.add_picture(io.BytesIO(closeup_image), width=Mm(135))
+    else:
+        doc.add_paragraph("사진 내려받기 실패")
 
     doc.add_paragraph(f"작성일: {date.today().isoformat()}")
     buffer = io.BytesIO()
@@ -92,27 +88,22 @@ def build_pdf_summary(
     characteristics: str,
     breeding_process: str,
 ) -> bytes:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
-    width, height = A4
+    _, height = A4
     y = height - 50
-
-    # Built-in Helvetica cannot render Korean. PDF remains a concise English/ASCII
-    # processing summary; DOCX is the authoritative Korean review file.
     c.setFont("Helvetica-Bold", 16)
     c.drawString(45, y, "Seed Import/Sales Report - Processing Summary")
     y -= 28
     c.setFont("Helvetica", 10)
-    lines = [
+    for line in [
         f"Variety: {variety_name}",
-        f"Korean name: {korean_name}",
         f"Scientific name: {scientific_name}",
         f"Shipment: {shipment_number}",
-        "",
-        "The Korean-form review document is included as DOCX.",
-        "Invoice output and source-file manifest are included in the ZIP.",
-    ]
-    for line in lines:
+        "DOCX includes one overall image and one flower close-up image.",
+    ]:
         c.drawString(45, y, line[:110])
         y -= 16
     c.save()

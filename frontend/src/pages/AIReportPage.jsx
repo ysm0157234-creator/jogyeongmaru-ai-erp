@@ -1,320 +1,107 @@
-import React, { useState } from "react";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  ExternalLink,
-  FileSearch,
-  Image as ImageIcon,
-  LoaderCircle,
-  Search,
-  Sparkles,
-} from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, CheckCircle2, FileSearch, Image as ImageIcon, LoaderCircle, Pencil, Save, Search, Sparkles, X } from "lucide-react";
 import { api, apiDownload } from "../services/api";
 
 export default function AIReportPage() {
   const [varietyName, setVarietyName] = useState("Tulipa spp. Sunlover");
   const [agency, setAgency] = useState("국립종자원");
-  const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState(null);
-  const [error, setError] = useState("");
-  const [selectedImages, setSelectedImages] = useState(["commons-01", "commons-02"]);
+  const [loading, setLoading] = useState(false);
   const [driveStatus, setDriveStatus] = useState(null);
+  const [error, setError] = useState("");
   const [fileLoading, setFileLoading] = useState(false);
   const [fileStatus, setFileStatus] = useState("");
 
-  async function loadDriveStatus() {
-    try {
-      setDriveStatus(await api("/api/ai-reports/drive/status"));
-    } catch {
-      setDriveStatus(null);
-    }
-  }
-
-  async function generateFiles() {
-    setFileLoading(true);
-    setError("");
-    setFileStatus("Google Drive에서 품종, Shipment, 인보이스를 검색하고 있습니다.");
-    try {
-      const response = await apiDownload("/api/ai-reports/generate-files", { method: "POST", body: JSON.stringify({ variety_name: varietyName, agency }) });
-      const blob = await response.blob();
-      if (!blob.size) throw new Error("서버가 빈 ZIP 파일을 반환했습니다.");
-      const disposition = response.headers.get("content-disposition") || "";
-      const nameMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
-      const filename = nameMatch ? decodeURIComponent(nameMatch[1]) : "Tulipa_Sunlover_생산판매신고_자동생성.zip";
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a"); link.href = url; link.download = filename; document.body.appendChild(link); link.click(); link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setFileStatus(`완료: ${filename} 다운로드가 시작됐습니다. 다운로드 폴더를 확인하세요.`);
-    } catch (err) {
-      const message = err?.message || "ZIP 생성에 실패했습니다."; setError(message); setFileStatus(`실패: ${message}`);
-    } finally { setFileLoading(false); }
-  }
+  useEffect(() => {
+    api("/api/ai-reports/drive/status").then(setDriveStatus).catch(() => setDriveStatus(null));
+  }, []);
 
   async function generate(event) {
     event.preventDefault();
-    setLoading(true);
-    setError("");
-    setDraft(null);
-
+    setLoading(true); setError(""); setFileStatus("");
     try {
-      const result = await api("/api/ai-reports/generate", {
+      setDraft(await api("/api/ai-reports/generate", {
         method: "POST",
-        body: JSON.stringify({
-          variety_name: varietyName,
-          agency,
-        }),
+        body: JSON.stringify({ variety_name: varietyName, agency }),
+      }));
+    } catch (err) { setError(err.message); }
+    finally { setLoading(false); }
+  }
+
+  async function generateFiles() {
+    setFileLoading(true); setError(""); setFileStatus("신고서와 사진 파일을 만들고 있습니다.");
+    try {
+      const response = await apiDownload("/api/ai-reports/generate-files", {
+        method: "POST",
+        body: JSON.stringify({ variety_name: varietyName, agency, draft_id: draft.id }),
       });
-      setDraft(result);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url; link.download = "Tulipa_Sunlover.zip";
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setFileStatus("완료: ZIP 다운로드를 시작했습니다.");
     } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+      setError(err.message); setFileStatus(`실패: ${err.message}`);
+    } finally { setFileLoading(false); }
   }
 
-  function toggleImage(id) {
-    setSelectedImages((current) =>
-      current.includes(id) ? current.filter((value) => value !== id) : [...current, id]
-    );
+  return <div>
+    <header className="page-header"><div><p className="eyebrow">AI REPORT BUILDER</p><h1>AI 생산·판매 신고 생성</h1></div></header>
+    <section className={`panel drive-status ${driveStatus?.configured ? "connected" : "disconnected"}`}>
+      <div><strong>Google Drive 연결</strong><span>{driveStatus?.message || "확인 중..."}</span></div>
+    </section>
+    <form className="panel ai-search-form" onSubmit={generate}>
+      <label className="field"><span>신고할 품종명</span><div className="search-box large"><Search size={20}/><input value={varietyName} onChange={e=>setVarietyName(e.target.value)} /></div></label>
+      <label className="field"><span>신고 기관</span><select value={agency} onChange={e=>setAgency(e.target.value)}><option>국립종자원</option><option>산림청</option><option>둘 다</option></select></label>
+      <button className="primary-button ai-generate-button" disabled={loading}>{loading?<LoaderCircle className="spin" size={19}/>:<Sparkles size={19}/>} AI 신고자료 생성</button>
+    </form>
+    {error && <div className="error-banner">{error}</div>}
+    {draft && <>
+      <AIResult draft={draft} setDraft={setDraft} setError={setError}/>
+      <section className="panel actual-file-box">
+        <div><h2>실제 신고파일 만들기</h2><p>저장한 초안과 전체샷·근접샷을 문서에 반영합니다.</p></div>
+        <button className="primary-button icon-button" onClick={generateFiles} disabled={fileLoading || !driveStatus?.configured}>{fileLoading?<LoaderCircle className="spin" size={18}/>:<FileSearch size={18}/>} ZIP 생성</button>
+        {fileStatus && <div className={`file-status-message ${fileStatus.startsWith("실패")?"failed":fileStatus.startsWith("완료")?"success":"working"}`}>{fileStatus}</div>}
+      </section>
+    </>}
+  </div>;
+}
+
+function AIResult({ draft, setDraft, setError }) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState(() => structuredClone(draft.result_data));
+  useEffect(()=>setForm(structuredClone(draft.result_data)),[draft]);
+
+  const overall = useMemo(()=>form.image_candidates.filter(i=>i.role==="overall"),[form.image_candidates]);
+  const closeup = useMemo(()=>form.image_candidates.filter(i=>i.role==="closeup"),[form.image_candidates]);
+
+  function change(path,value){setForm(current=>{const next=structuredClone(current);let t=next;for(let i=0;i<path.length-1;i++)t=t[path[i]];t[path.at(-1)]=value;return next;});}
+  function select(role,id){setForm(c=>({...c,selected_images:{...(c.selected_images||{}),[role]:id}}));}
+
+  async function save(){
+    setSaving(true);setError("");
+    try{
+      const updated=await api(`/api/ai-reports/${draft.id}`,{method:"PUT",body:JSON.stringify({result_data:form,status:"검토 완료"})});
+      setDraft(updated);setEditing(false);
+    }catch(err){setError(err.message);}finally{setSaving(false);}
   }
 
-  React.useEffect(() => { loadDriveStatus(); }, []);
-
-  return (
-    <div>
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">AI REPORT BUILDER</p>
-          <h1>AI 생산·판매 신고 생성</h1>
-          <p className="muted">
-            품종명만 입력하면 Drive 자료와 웹 정보를 모아 신고 초안을 만듭니다.
-          </p>
-        </div>
-      </header>
-
-      <section className="ai-hero panel">
-        <div className="ai-hero-icon"><Sparkles size={26} /></div>
-        <div>
-          <h2>품종 하나만 입력하세요</h2>
-          <p>현재 시험 품종: Tulipa spp. Sunlover</p>
-        </div>
-      </section>
-
-      <section className={`panel drive-status ${driveStatus?.configured ? "connected" : "disconnected"}`}>
-        <div>
-          <strong>Google Drive 연결</strong>
-          <span>{driveStatus?.message || "연결상태 확인 중..."}</span>
-        </div>
-        <small>Shipment Overview → Shipment 번호 → 2026 수입 폴더 → Invoice 자동가공</small>
-      </section>
-
-      <form className="panel ai-search-form" onSubmit={generate}>
-        <label className="field">
-          <span>신고할 품종명</span>
-          <div className="search-box large">
-            <Search size={20} />
-            <input
-              value={varietyName}
-              onChange={(event) => setVarietyName(event.target.value)}
-              placeholder="예: Tulipa spp. Sunlover"
-              required
-            />
-          </div>
-        </label>
-
-        <label className="field">
-          <span>신고 기관</span>
-          <select value={agency} onChange={(event) => setAgency(event.target.value)}>
-            <option>국립종자원</option>
-            <option>산림청</option>
-            <option>둘 다</option>
-          </select>
-        </label>
-
-        <button className="primary-button ai-generate-button" disabled={loading}>
-          {loading ? <LoaderCircle size={19} className="spin" /> : <Sparkles size={19} />}
-          {loading ? "자료를 찾는 중..." : "AI 신고자료 생성"}
-        </button>
-      </form>
-
-      {error && <div className="error-banner">{error}</div>}
-
-      {draft && (
-        <>
-          <AIResult draft={draft} selectedImages={selectedImages} toggleImage={toggleImage} />
-          <section className="panel actual-file-box">
-            <div>
-              <h2>실제 신고파일 만들기</h2>
-              <p>
-                Shipment Overview에서 컨테이너 번호를 찾고, 2026 수입 폴더의
-                인보이스를 찾아 신고용 파일로 가공합니다.
-              </p>
-            </div>
-            <button
-              className="primary-button icon-button"
-              disabled={fileLoading || !driveStatus?.configured}
-              onClick={generateFiles}
-            >
-              {fileLoading ? <LoaderCircle size={18} className="spin" /> : <FileSearch size={18} />}
-              {fileLoading ? "파일 생성 중..." : "신고서·인보이스 ZIP 생성"}
-            </button>
-            {fileStatus && (
-              <div className={`file-status-message ${fileStatus.startsWith("실패") ? "failed" : fileStatus.startsWith("완료") ? "success" : "working"}`}>
-                {fileLoading && <LoaderCircle size={17} className="spin" />}
-                <span>{fileStatus}</span>
-              </div>
-            )}
-            {!driveStatus?.configured && (
-              <div className="warning-box">
-                Render API Environment에 GOOGLE_SERVICE_ACCOUNT_JSON을 먼저 등록하세요.
-              </div>
-            )}
-          </section>
-        </>
-      )}
-    </div>
-  );
+  return <div className="ai-result">
+    <section className="panel ai-result-header"><div><p className="eyebrow">AI DRAFT #{draft.id}</p>{editing?<div className="edit-title-grid"><input value={form.matched_name} onChange={e=>change(["matched_name"],e.target.value)}/><input value={form.korean_name} onChange={e=>change(["korean_name"],e.target.value)}/></div>:<><h2>{form.matched_name}</h2><p className="muted">{form.korean_name}</p></>}</div><span className="status pending">{draft.status}</span></section>
+    <section className="ai-summary-grid">
+      <Card editing={editing} label="학명" value={form.scientific_name} onChange={v=>change(["scientific_name"],v)}/>
+      <Card editing={editing} label="꽃 색상" value={form.classification.flower_color} onChange={v=>change(["classification","flower_color"],v)}/>
+      <Card editing={editing} label="개화기" value={form.classification.flowering_period} onChange={v=>change(["classification","flowering_period"],v)}/>
+      <Card editing={editing} label="초장" value={form.classification.height} onChange={v=>change(["classification","height"],v)}/>
+    </section>
+    <section className="panel"><h2>AI 작성 초안</h2><div className="draft-text-grid"><article><h3>품종의 특성 설명</h3><textarea rows="7" disabled={!editing} value={form.characteristics_draft} onChange={e=>change(["characteristics_draft"],e.target.value)}/></article><article><h3>품종의 육성과정</h3><textarea rows="7" disabled={!editing} value={form.breeding_process_draft} onChange={e=>change(["breeding_process_draft"],e.target.value)}/></article></div></section>
+    <Photo title="사진 1 · 품종 전체 모습" description="식물 또는 꽃대 전체 형태가 보이는 사진" images={overall} selected={form.selected_images?.overall} onSelect={id=>select("overall",id)}/>
+    <Photo title="사진 2 · 꽃 근접 모습" description="꽃잎 색상과 형태가 잘 보이는 근접 사진" images={closeup} selected={form.selected_images?.closeup} onSelect={id=>select("closeup",id)}/>
+    <section className="panel warning-panel"><div className="ai-final-actions">{!editing?<button className="secondary-button icon-button" onClick={()=>setEditing(true)}><Pencil size={17}/>초안 수정</button>:<><button className="secondary-button icon-button" onClick={()=>{setForm(structuredClone(draft.result_data));setEditing(false);}}><X size={17}/>취소</button><button className="primary-button icon-button" onClick={save} disabled={saving}>{saving?<LoaderCircle className="spin" size={17}/>:<Save size={17}/>}수정 저장</button></>} {!editing&&<button className="primary-button" onClick={save}>신고 검토함에 저장</button>}</div></section>
+  </div>;
 }
-
-function AIResult({ draft, selectedImages, toggleImage }) {
-  const data = draft.result_data;
-
-  return (
-    <div className="ai-result">
-      <section className="panel ai-result-header">
-        <div>
-          <p className="eyebrow">AI DRAFT #{draft.id}</p>
-          <h2>{data.matched_name}</h2>
-          <p className="muted">{data.korean_name} · 일치도 {data.match_confidence}%</p>
-        </div>
-        <span className="status pending">{draft.status}</span>
-      </section>
-
-      <section className="ai-summary-grid">
-        <SummaryCard label="학명" value={data.scientific_name} />
-        <SummaryCard label="원예 분류" value={data.classification.horticultural_group} />
-        <SummaryCard label="꽃 색상" value={data.classification.flower_color} />
-        <SummaryCard label="개화기" value={data.classification.flowering_period} />
-        <SummaryCard label="초장" value={data.classification.height} />
-        <SummaryCard label="신고 기관" value={data.requested_agency} />
-      </section>
-
-      <section className="panel">
-        <SectionTitle icon={FileSearch} title="Drive 자료 검색 결과" />
-        <div className="source-list">
-          {data.drive_sources.map((source) => <SourceRow key={source.url} source={source} />)}
-          {data.shipment_match.candidate_files.map((source) => (
-            <SourceRow key={source.url} source={{ ...source, type: source.purpose, status: "후보" }} />
-          ))}
-        </div>
-        <div className="warning-box">
-          <AlertTriangle size={18} />
-          <span>{data.shipment_match.message}</span>
-        </div>
-      </section>
-
-      <section className="panel">
-        <SectionTitle icon={Sparkles} title="AI 작성 초안" />
-        <div className="draft-text-grid">
-          <article>
-            <h3>품종의 특성 설명</h3>
-            <textarea defaultValue={data.characteristics_draft} rows="7" />
-          </article>
-          <article>
-            <h3>품종의 육성과정</h3>
-            <textarea defaultValue={data.breeding_process_draft} rows="7" />
-          </article>
-        </div>
-      </section>
-
-      <section className="panel">
-        <SectionTitle icon={ImageIcon} title="웹 사진 후보" />
-        <p className="muted ai-section-note">
-          추천 사진이 기본 선택돼 있습니다. 품종이 맞는지 확인한 뒤 사용하세요.
-        </p>
-        <div className="image-candidate-grid">
-          {data.image_candidates.map((image) => {
-            const selected = selectedImages.includes(image.id);
-            return (
-              <button
-                type="button"
-                className={`image-candidate ${selected ? "selected" : ""}`}
-                key={image.id}
-                onClick={() => toggleImage(image.id)}
-              >
-                <img src={image.preview_url} alt={image.title} />
-                <div className="image-candidate-body">
-                  <strong>{image.title}</strong>
-                  <span>{image.source}</span>
-                  <small>{image.license}</small>
-                  <div className="image-selected-label">
-                    {selected ? <CheckCircle2 size={16} /> : null}
-                    {selected ? "선택됨" : "선택"}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="panel">
-        <SectionTitle icon={FileSearch} title="필요 서류 체크" />
-        <div className="document-check-grid">
-          {data.required_documents.map((item) => (
-            <div className="document-check" key={item.name}>
-              <CheckCircle2 size={18} />
-              <div><strong>{item.name}</strong><span>{item.status}</span></div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="panel">
-        <SectionTitle icon={ExternalLink} title="웹 조사 출처" />
-        <div className="source-list">
-          {data.web_sources.map((source) => <SourceRow key={source.url} source={source} />)}
-        </div>
-      </section>
-
-      <section className="panel warning-panel">
-        <SectionTitle icon={AlertTriangle} title="최종 확인 필요" />
-        {data.warnings.map((warning) => (
-          <div className="warning-line" key={warning}><AlertTriangle size={17} />{warning}</div>
-        ))}
-        <div className="ai-final-actions">
-          <button className="secondary-button">초안 수정</button>
-          <button
-            className="primary-button"
-            onClick={() => window.alert("검토함 저장 완료. 다음 버전에서 정부 사이트 자동입력 단계와 연결합니다.")}
-          >
-            신고 검토함에 저장
-          </button>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function SummaryCard({ label, value }) {
-  return <article className="ai-summary-card"><span>{label}</span><strong>{value}</strong></article>;
-}
-
-function SectionTitle({ icon: Icon, title }) {
-  return <div className="ai-section-title"><Icon size={20} /><h2>{title}</h2></div>;
-}
-
-function SourceRow({ source }) {
-  return (
-    <a className="source-row" href={source.url} target="_blank" rel="noreferrer">
-      <div>
-        <strong>{source.title}</strong>
-        <span>{source.type}</span>
-      </div>
-      <div className="source-row-right">
-        <span className="source-status">{source.status}</span>
-        <ExternalLink size={16} />
-      </div>
-    </a>
-  );
-}
+function Card({editing,label,value,onChange}){return <article className="ai-summary-card"><span>{label}</span>{editing?<input value={value} onChange={e=>onChange(e.target.value)}/>:<strong>{value}</strong>}</article>}
+function Photo({title,description,images,selected,onSelect}){return <section className="panel"><div className="ai-section-title"><ImageIcon size={20}/><h2>{title}</h2></div><p className="muted">{description}</p><div className="image-candidate-grid">{images.map(image=><button type="button" key={image.id} className={`image-candidate ${selected===image.id?"selected":""}`} onClick={()=>onSelect(image.id)}><img src={image.preview_url} alt={image.title}/><div className="image-candidate-body"><strong>{image.title}</strong><span>{image.source}</span><div className="image-selected-label">{selected===image.id&&<CheckCircle2 size={16}/>} {selected===image.id?"이 사진 사용":"선택"}</div></div></button>)}</div></section>}
