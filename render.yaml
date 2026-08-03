@@ -34,6 +34,12 @@ services:
         sync: false
       - key: CORS_ORIGINS
         value: "*"
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: SHIPMENT_OVERVIEW_FILE_ID
+        value: "1ivbvqCc7jeA9dX23nW3jpjpDQ3R_NBuw"
+      - key: IMPORT_2026_FOLDER_ID
+        value: "1y1wGHlpIEZY2wPFNWA4JoCnEARFXQvmq"
 
   - type: web
     name: jogyeongmaru-ai-erp-web

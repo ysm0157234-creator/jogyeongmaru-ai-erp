@@ -56,3 +56,24 @@ export async function api(path, options = {}) {
 }
 
 export { API_URL };
+
+
+export async function apiDownload(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  headers.set("Content-Type", "application/json");
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const response = await fetch(`${API_URL}${path}`, { ...options, headers });
+  if (!response.ok) {
+    let message = "파일 생성 중 오류가 발생했습니다.";
+    try {
+      const body = await response.json();
+      message = body.detail || message;
+    } catch {
+      // ignore
+    }
+    throw new Error(message);
+  }
+  return response;
+}

@@ -1,10 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from fastapi.responses import StreamingResponse
+import io
+from urllib.parse import quote
 from app.core.database import get_db
 from app.models.ai_draft import AIDraft
 from app.models.user import User
 from app.schemas.ai_draft import AIGenerateRequest, AIDraftResponse
 from .deps import get_current_user
+from app.services.workflow import run_workflow
+from app.services.drive_service import DriveNotConfiguredError
 
 router = APIRouter(prefix="/api/ai-reports", tags=["ai-reports"])
 
@@ -179,3 +184,61 @@ def get_ai_draft(
     if not draft:
         raise HTTPException(status_code=404, detail="AI 신고 초안을 찾을 수 없습니다.")
     return draft
+
+
+@router.get("/drive/status")
+def drive_status(_: User = Depends(get_current_user)):
+    from app.core.config import get_settings
+    settings = get_settings()
+    return {
+        "configured": bool(settings.google_service_account_json.strip()),
+        "shipment_overview_file_id": settings.shipment_overview_file_id,
+        "import_2026_folder_id": settings.import_2026_folder_id,
+        "message": (
+            "Google Drive 연결 준비 완료"
+            if settings.google_service_account_json.strip()
+            else "Render에 GOOGLE_SERVICE_ACCOUNT_JSON을 설정해야 실제 Drive 파일을 처리할 수 있습니다."
+        ),
+    }
+
+@router.post("/generate-files")
+def generate_files(
+    payload: AIGenerateRequest,
+    current_user: User = Depends(get_current_user),
+):
+    normalized = normalize_name(payload.variety_name)
+    valid_names = {
+        normalize_name("Tulipa spp. Sunlover"),
+        normalize_name("Tulipa Sunlover"),
+        normalize_name("Sunlover"),
+        normalize_name("썬러버"),
+        normalize_name("튤립 썬러버"),
+    }
+    if normalized not in valid_names:
+        raise HTTPException(
+            status_code=404,
+            detail="현재 시험 버전은 Tulipa spp. Sunlover만 파일 생성할 수 있습니다.",
+        )
+    try:
+        zip_bytes, manifest = run_workflow(payload.variety_name)
+    except DriveNotConfiguredError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"파일 자동생성 중 오류가 발생했습니다: {exc}",
+        ) from exc
+
+    filename = "Tulipa_Sunlover_생산판매신고_자동생성.zip"
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
+        "X-Workflow-Shipment": str(manifest["shipment_overview"]["shipment"]),
+        "X-Invoice-Mode": quote(str(manifest["invoice_processing"])),
+    }
+    return StreamingResponse(
+        io.BytesIO(zip_bytes),
+        media_type="application/zip",
+        headers=headers,
+    )

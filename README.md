@@ -1,4 +1,4 @@
-# 조경마루 AI ERP v1.2 - Sunlover AI 신고
+# 조경마루 AI ERP v2.0 - Drive·Invoice 자동화
 
 React + FastAPI + PostgreSQL 기반의 조경마루 업무관리 시스템입니다.
 
@@ -107,3 +107,36 @@ npm run dev
 - 필요한 첨부서류와 확인사항 표시
 - AI 신고 초안을 PostgreSQL에 저장
 - 다음 단계: Google Drive API 실시간 검색 및 정부 사이트 자동입력
+
+
+## v2.0 실제 파일 자동생성 흐름
+
+1. `Tulipa spp. Sunlover` 입력
+2. 지정된 Shipment Overview XLSX에서 품종 행 검색
+3. 오른쪽 `Shipment` 열에서 컨테이너/선적 번호 추출
+4. `무역서류/2026 수입` 폴더를 하위 폴더까지 검색
+5. 같은 Shipment 번호의 Invoice 후보 검색
+6. XLSX Invoice이면 해당 품종 행만 남긴 신고용 사본 생성
+7. PDF Invoice이면 품종명이 들어간 페이지를 추출
+8. 직접 수정이 불가능하면 Shipment Overview 기반 인보이스 발췌 XLSX 생성
+9. 오렌지썬라이즈 검토안 항목을 기준으로 신고서 검토안 DOCX 생성
+10. 처리요약 PDF, manifest.json과 함께 ZIP 다운로드
+
+### Render 필수 환경변수
+
+`jogyeongmaru-ai-erp-api → Environment`에 다음을 추가합니다.
+
+- `GOOGLE_SERVICE_ACCOUNT_JSON`: Google Cloud 서비스 계정 JSON 전체
+- `SHIPMENT_OVERVIEW_FILE_ID`: 기본값 포함
+- `IMPORT_2026_FOLDER_ID`: 기본값 포함
+
+서비스 계정 이메일에 아래 파일/폴더를 **뷰어 권한으로 공유**해야 합니다.
+
+- Shipment Overview 파일
+- `2026 수입` 폴더
+
+### HWP 관련
+
+Render는 Linux 서버이므로 한컴 HWP 파일을 완전하게 직접 편집하는 기능은 안정적으로 제공되지 않습니다.
+v2.0은 업로드한 검토안의 항목과 구성에 맞춘 DOCX와 PDF를 생성합니다.
+HWP 원본 자동편집이 반드시 필요하면 Windows PC 또는 Windows 서버에 한컴오피스 자동화 모듈을 연결하는 별도 단계가 필요합니다.

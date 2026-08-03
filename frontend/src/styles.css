@@ -779,3 +779,29 @@ input:focus, select:focus, textarea:focus {
   .ai-summary-grid, .document-check-grid { grid-template-columns: 1fr; }
   .image-candidate img { height: 220px; }
 }
+
+.drive-status {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.drive-status strong, .drive-status span { display: block; }
+.drive-status span { margin-top: 5px; color: #6b7684; font-size: 13px; }
+.drive-status small { color: #8b95a1; text-align: right; }
+.drive-status.connected { border-color: #b8e8cf; background: #f5fcf8; }
+.drive-status.disconnected { border-color: #ffd5a3; background: #fffaf3; }
+.actual-file-box {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: center;
+}
+.actual-file-box h2 { margin: 0 0 7px; }
+.actual-file-box p { margin: 0; color: #6b7684; line-height: 1.6; }
+.actual-file-box .warning-box { grid-column: 1 / -1; margin-top: 0; }
+@media (max-width: 760px) {
+  .drive-status, .actual-file-box { grid-template-columns: 1fr; display: grid; }
+  .drive-status small { text-align: left; }
+}

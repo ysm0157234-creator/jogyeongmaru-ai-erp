@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -9,7 +9,7 @@ import {
   Search,
   Sparkles,
 } from "lucide-react";
-import { api } from "../services/api";
+import { api, apiDownload } from "../services/api";
 
 export default function AIReportPage() {
   const [varietyName, setVarietyName] = useState("Tulipa spp. Sunlover");
@@ -18,6 +18,38 @@ export default function AIReportPage() {
   const [draft, setDraft] = useState(null);
   const [error, setError] = useState("");
   const [selectedImages, setSelectedImages] = useState(["commons-01", "commons-02"]);
+  const [driveStatus, setDriveStatus] = useState(null);
+  const [fileLoading, setFileLoading] = useState(false);
+
+  async function loadDriveStatus() {
+    try {
+      setDriveStatus(await api("/api/ai-reports/drive/status"));
+    } catch {
+      setDriveStatus(null);
+    }
+  }
+
+  async function generateFiles() {
+    setFileLoading(true);
+    setError("");
+    try {
+      const response = await apiDownload("/api/ai-reports/generate-files", {
+        method: "POST",
+        body: JSON.stringify({ variety_name: varietyName, agency }),
+      });
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "Tulipa_Sunlover_생산판매신고_자동생성.zip";
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setFileLoading(false);
+    }
+  }
 
   async function generate(event) {
     event.preventDefault();
@@ -47,6 +79,8 @@ export default function AIReportPage() {
     );
   }
 
+  React.useEffect(() => { loadDriveStatus(); }, []);
+
   return (
     <div>
       <header className="page-header">
@@ -65,6 +99,14 @@ export default function AIReportPage() {
           <h2>품종 하나만 입력하세요</h2>
           <p>현재 시험 품종: Tulipa spp. Sunlover</p>
         </div>
+      </section>
+
+      <section className={`panel drive-status ${driveStatus?.configured ? "connected" : "disconnected"}`}>
+        <div>
+          <strong>Google Drive 연결</strong>
+          <span>{driveStatus?.message || "연결상태 확인 중..."}</span>
+        </div>
+        <small>Shipment Overview → Shipment 번호 → 2026 수입 폴더 → Invoice 자동가공</small>
       </section>
 
       <form className="panel ai-search-form" onSubmit={generate}>
@@ -98,7 +140,33 @@ export default function AIReportPage() {
 
       {error && <div className="error-banner">{error}</div>}
 
-      {draft && <AIResult draft={draft} selectedImages={selectedImages} toggleImage={toggleImage} />}
+      {draft && (
+        <>
+          <AIResult draft={draft} selectedImages={selectedImages} toggleImage={toggleImage} />
+          <section className="panel actual-file-box">
+            <div>
+              <h2>실제 신고파일 만들기</h2>
+              <p>
+                Shipment Overview에서 컨테이너 번호를 찾고, 2026 수입 폴더의
+                인보이스를 찾아 신고용 파일로 가공합니다.
+              </p>
+            </div>
+            <button
+              className="primary-button icon-button"
+              disabled={fileLoading || !driveStatus?.configured}
+              onClick={generateFiles}
+            >
+              {fileLoading ? <LoaderCircle size={18} className="spin" /> : <FileSearch size={18} />}
+              {fileLoading ? "파일 생성 중..." : "신고서·인보이스 ZIP 생성"}
+            </button>
+            {!driveStatus?.configured && (
+              <div className="warning-box">
+                Render API Environment에 GOOGLE_SERVICE_ACCOUNT_JSON을 먼저 등록하세요.
+              </div>
+            )}
+          </section>
+        </>
+      )}
     </div>
   );
 }
