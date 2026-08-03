@@ -1,0 +1,49 @@
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
+export function getToken() {
+  return localStorage.getItem("jm_token");
+}
+
+export function setToken(token) {
+  localStorage.setItem("jm_token", token);
+}
+
+export function clearToken() {
+  localStorage.removeItem("jm_token");
+}
+
+export async function api(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  headers.set("Content-Type", "application/json");
+
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const response = await fetch(`${API_URL}${path}`, {
+    ...options,
+    headers,
+  });
+
+  if (response.status === 401) {
+    clearToken();
+    if (window.location.pathname !== "/login") {
+      window.location.href = "/login";
+    }
+  }
+
+  if (!response.ok) {
+    let message = "요청 처리 중 오류가 발생했습니다.";
+    try {
+      const body = await response.json();
+      message = body.detail || message;
+    } catch {
+      // ignore
+    }
+    throw new Error(message);
+  }
+
+  if (response.status === 204) return null;
+  return response.json();
+}
+
+export { API_URL };
