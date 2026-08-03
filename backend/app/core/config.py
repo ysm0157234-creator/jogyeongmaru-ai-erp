@@ -11,8 +11,8 @@ class Settings(BaseSettings):
     cors_origins: str = "*"
 
     google_service_account_json: str = ""
-shipment_overview_file_id: str = ""
-import_2026_folder_id: str = ""
+    shipment_overview_file_id: str = ""
+    import_2026_folder_id: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -25,6 +25,7 @@ import_2026_folder_id: str = ""
         if self.cors_origins.strip() == "*":
             return ["*"]
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
 
 @lru_cache
 def get_settings() -> Settings:
