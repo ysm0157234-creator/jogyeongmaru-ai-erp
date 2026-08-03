@@ -10,7 +10,7 @@ import {
   Ship,
   Sparkles,
 } from "lucide-react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { clearToken } from "../services/api";
 
 const menus = [
@@ -23,7 +23,7 @@ const menus = [
   ["/settings", "설정", Settings],
 ];
 
-export default function Layout({ children }) {
+export default function Layout() {
   const navigate = useNavigate();
 
   function logout() {
@@ -76,7 +76,7 @@ export default function Layout({ children }) {
       </aside>
 
       <main className="main-content">
-        <div className="content-container">{children}</div>
+        <div className="content-container"><Outlet /></div>
       </main>
     </div>
   );

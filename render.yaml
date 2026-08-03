@@ -43,6 +43,8 @@ services:
     staticPublishPath: ./dist
     autoDeploy: true
     envVars:
+      - key: NODE_VERSION
+        value: "20.18.1"
       - key: VITE_API_URL
         value: https://jogyeongmaru-ai-erp-api.onrender.com
     routes:
