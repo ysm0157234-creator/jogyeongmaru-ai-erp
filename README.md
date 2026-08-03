@@ -1,67 +1,96 @@
-# Gesture Remote
+# 조경마루 AI ERP v0.2.1
 
-Apple Watch Series 7의 손목 움직임과 AssistiveTouch, Digital Crown을 이용해
-Windows의 화면 넘김, 스크롤, 확대·축소, 볼륨과 미디어 재생을 제어하는 초기 버전입니다.
+React + FastAPI + PostgreSQL 기반의 조경마루 업무관리 시스템입니다.
 
-## 구성
+## v0.2.1 기능
 
-- `windows`: Windows 10/11용 .NET 8 수신기
-- `apple/MacApp`: macOS 메뉴 막대 수신 앱
-- `apple/iPhoneApp`: Apple Watch와 Windows 사이의 중계 앱
-- `apple/WatchApp`: 손목 제스처 및 버튼·Digital Crown 입력
-- `apple/project.yml`: XcodeGen 프로젝트 정의
+- 토스 스타일 UI 개편
+- JWT 로그인
+- 대시보드
+- 생산·판매 신고 등록
+- 신고 내역 조회
+- 신고 수정 및 삭제
+- 기관/구분/상태별 필터
+- PostgreSQL 저장
+- Render 자동 배포
+- 이후 메뉴 확장이 가능한 사이드바 구조
 
-## 1. Windows 실행
+## 기본 관리자 계정
 
-[.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)이 설치되어 있어야 합니다.
+Render 환경변수에서 아래 값을 설정합니다.
 
-PowerShell에서:
+- `ADMIN_EMAIL`
+- `ADMIN_PASSWORD`
 
-```powershell
-cd windows
-dotnet run
+설정하지 않으면 개발용 기본값이 사용됩니다.
+
+- 이메일: `admin@jogyeongmaru.co.kr`
+- 비밀번호: `ChangeMe123!`
+
+배포 후 반드시 비밀번호를 변경하세요.
+
+## 프로젝트 구조
+
+```text
+backend/      FastAPI API 서버
+frontend/     React + Vite 웹 화면
+automation/   향후 국립종자원/산림청 자동화 모듈
+render.yaml   Render 웹서비스/DB 배포 설정
 ```
 
-서버 권한 오류가 표시되면 관리자 PowerShell에서 안내된 `netsh` 명령을 한 번 실행합니다.
-Windows 방화벽이 묻는 경우 개인 네트워크 접근을 허용합니다.
+## GitHub 업로드
 
-## 2. Mac에서 Apple 프로젝트 열기
+압축을 푼 뒤 모든 파일을 `jogyeongmaru-ai-erp` 저장소 폴더에 복사하고
+GitHub Desktop에서 Commit → Push 합니다.
 
-Mac에 Xcode와 XcodeGen을 설치한 다음:
+## Render 배포
+
+1. Render 대시보드에서 New → Blueprint
+2. `jogyeongmaru-ai-erp` 저장소 연결
+3. Blueprint Path는 `render.yaml`
+4. Apply
+5. 배포 후 프론트엔드 서비스의 `VITE_API_URL` 값이 백엔드 주소로 연결됩니다.
+
+## 로컬 개발
+
+### 백엔드
 
 ```bash
-cd apple
-brew install xcodegen
-xcodegen generate
-open GestureRemote.xcodeproj
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+uvicorn app.main:app --reload
 ```
 
-Xcode에서 iPhone 및 Watch 타깃의 Team을 자신의 Apple ID 팀으로 바꾸고,
-Bundle Identifier도 고유한 값으로 변경합니다. 실제 iPhone을 대상으로 실행하면
-페어링된 Apple Watch 앱도 설치됩니다.
+### 프론트엔드
 
-## 3. 연결
+```bash
+cd frontend
+npm install
+cp .env.example .env
+npm run dev
+```
 
-1. Windows 수신기를 실행하고 화면에 표시된 IP 주소를 확인합니다.
-2. iPhone과 Windows를 같은 Wi-Fi에 연결합니다.
-3. iPhone 앱에 Windows IP 주소를 입력하고 연결합니다.
-4. Watch 앱에서 `제스처 켜기`를 누릅니다.
+## v0.2.1 변경사항
 
-## 기본 조작
+- 전체 UI를 토스 스타일로 개편
+- 로그인 화면 전면 개편
+- 대시보드 카드 디자인 개선
+- 신고 목록 검색/필터 UX 개선
+- 신고 등록을 3단계 입력 방식으로 변경
+- 로딩/오류 상태 추가
+- passlib/bcrypt 제거
+- pwdlib + Argon2 비밀번호 해시 적용
 
-- 손목 X축 튕김: 이전/다음
-- 손목 Y축 튕김: 위/아래 스크롤
-- Digital Crown: Windows 볼륨
-- Watch의 `−`, `+`: 축소/확대
-- 재생 버튼: 미디어 재생/일시정지
-- AssistiveTouch: 화면의 버튼을 포커스하고 주먹 쥐기로 실행
 
-초기 임계값은 `3.0 rad/s`, 재입력 방지 시간은 `0.8초`입니다.
-실사용 시 사용자 움직임에 맞춰 보정해야 합니다.
+## v0.2.1 긴급 수정
 
-## MacBook 제어
-
-`xcodegen`으로 프로젝트를 다시 생성하면 `GestureRemoteMac` 타깃이 추가됩니다.
-해당 타깃의 Team을 설정한 뒤 `My Mac`을 대상으로 실행합니다. 메뉴 막대의
-Apple Watch 아이콘에서 Mac의 Wi-Fi IP를 확인하고 iPhone 앱에 입력합니다.
-처음 실행할 때 macOS가 손쉬운 사용 권한을 요청하면 허용한 뒤 앱을 다시 실행합니다.
+- 흰 화면 문제 대응
+- React 18.3.1 안정 버전 고정
+- React Router 6.28.1 안정 버전 고정
+- Vite React 플러그인 및 설정 파일 추가
+- 중첩 라우팅 구조를 Outlet 방식으로 수정
+- 화면 오류 표시용 ErrorBoundary 추가
+- Render Node.js 버전 고정
