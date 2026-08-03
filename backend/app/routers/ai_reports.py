@@ -231,12 +231,12 @@ def generate_files(
             detail=f"파일 자동생성 중 오류가 발생했습니다: {exc}",
         ) from exc
 
-   filename = "Tulipa_Sunlover.zip"
+    filename = "Tulipa_Sunlover.zip"
 
-return StreamingResponse(
-    io.BytesIO(zip_bytes),
-    media_type="application/zip",
-    headers={
-        "Content-Disposition": 'attachment; filename="Tulipa_Sunlover.zip"',
-    },
-)
+    return StreamingResponse(
+        io.BytesIO(zip_bytes),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": 'attachment; filename="Tulipa_Sunlover.zip"',
+        },
+    )
