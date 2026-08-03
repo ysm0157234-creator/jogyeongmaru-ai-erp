@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 720
     admin_email: str = "admin@jogyeongmaru.co.kr"
     admin_password: str = "ChangeMe123!"
-    cors_origins: str = "http://localhost:5173"
+    cors_origins: str = "*"
 
     model_config = SettingsConfigDict(
         env_file=".env",
