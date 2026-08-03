@@ -14,15 +14,24 @@ export function clearToken() {
 
 export async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
-  headers.set("Content-Type", "application/json");
+  const hasBody = options.body !== undefined && options.body !== null;
+
+  if (hasBody && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
 
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const response = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers,
-  });
+  let response;
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      ...options,
+      headers,
+    });
+  } catch {
+    throw new Error("서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.");
+  }
 
   if (response.status === 401) {
     clearToken();

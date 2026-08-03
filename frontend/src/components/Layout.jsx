@@ -2,11 +2,13 @@ import {
   Bot,
   Boxes,
   Building2,
+  ChevronRight,
   FileText,
   LayoutDashboard,
   LogOut,
   Settings,
   Ship,
+  Sparkles,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { clearToken } from "../services/api";
@@ -33,12 +35,16 @@ export default function Layout({ children }) {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">JM</div>
+          <div className="brand-mark">
+            <Sparkles size={20} />
+          </div>
           <div>
             <strong>조경마루 AI</strong>
-            <small>ERP System</small>
+            <small>Smart ERP</small>
           </div>
         </div>
+
+        <div className="sidebar-section-label">업무 메뉴</div>
 
         <nav className="menu">
           {menus.map(([to, label, Icon]) => (
@@ -48,11 +54,20 @@ export default function Layout({ children }) {
               end={to === "/"}
               className={({ isActive }) => `menu-item ${isActive ? "active" : ""}`}
             >
-              <Icon size={18} />
+              <span className="menu-icon"><Icon size={18} /></span>
               <span>{label}</span>
+              <ChevronRight size={15} className="menu-chevron" />
             </NavLink>
           ))}
         </nav>
+
+        <div className="sidebar-profile">
+          <div className="avatar">JM</div>
+          <div className="sidebar-profile-text">
+            <strong>관리자</strong>
+            <span>admin@jogyeongmaru.co.kr</span>
+          </div>
+        </div>
 
         <button className="logout-button" onClick={logout}>
           <LogOut size={18} />
@@ -60,7 +75,9 @@ export default function Layout({ children }) {
         </button>
       </aside>
 
-      <main className="main-content">{children}</main>
+      <main className="main-content">
+        <div className="content-container">{children}</div>
+      </main>
     </div>
   );
 }

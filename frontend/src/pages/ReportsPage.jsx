@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Download, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { API_URL, api, getToken } from "../services/api";
 
@@ -11,15 +12,25 @@ export default function ReportsPage() {
     report_type: "",
     status: "",
   });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    const timeout = setTimeout(loadReports, 150);
+    const timeout = setTimeout(loadReports, 180);
     return () => clearTimeout(timeout);
   }, [filters]);
 
   async function loadReports() {
-    const params = new URLSearchParams(filters);
-    setReports(await api(`/api/reports?${params}`));
+    setLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams(filters);
+      setReports(await api(`/api/reports?${params}`));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function remove(id) {
@@ -47,37 +58,55 @@ export default function ReportsPage() {
         <div>
           <p className="eyebrow">PRODUCTION & SALES</p>
           <h1>생산·판매 신고</h1>
-          <p className="muted">신고 자료를 등록하고 관리합니다.</p>
+          <p className="muted">신고 자료를 등록하고 처리상태를 관리하세요.</p>
         </div>
         <div className="header-actions">
-          <button className="secondary-button" onClick={downloadCsv}>CSV 다운로드</button>
-          <Link className="primary-button link-button" to="/reports/new">+ 신고 등록</Link>
+          <button className="secondary-button icon-button" onClick={downloadCsv}>
+            <Download size={18} />
+            CSV 다운로드
+          </button>
+          <Link className="primary-button link-button icon-button" to="/reports/new">
+            <Plus size={18} />
+            신고 등록
+          </Link>
         </div>
       </header>
 
+      {error && <div className="error-banner">{error}</div>}
+
       <section className="panel">
         <div className="filter-grid">
-          <input
-            placeholder="품목, 품종, 거래처, 로트번호 검색"
-            value={filters.search}
-            onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-          />
+          <div className="search-box">
+            <Search size={18} />
+            <input
+              placeholder="품목, 품종, 거래처, 로트번호 검색"
+              value={filters.search}
+              onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+            />
+          </div>
+
           <select value={filters.agency} onChange={(e) => setFilters({ ...filters, agency: e.target.value })}>
             <option value="">전체 기관</option>
             <option>국립종자원</option>
             <option>산림청</option>
           </select>
+
           <select value={filters.report_type} onChange={(e) => setFilters({ ...filters, report_type: e.target.value })}>
             <option value="">전체 구분</option>
             <option>생산 신고</option>
             <option>판매 신고</option>
           </select>
+
           <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
             <option value="">전체 상태</option>
             <option>작성 중</option>
             <option>전송 대기</option>
             <option>완료</option>
           </select>
+        </div>
+
+        <div className="list-summary">
+          총 <strong>{reports.length}</strong>건
         </div>
 
         <div className="table-wrap">
@@ -97,20 +126,26 @@ export default function ReportsPage() {
               </tr>
             </thead>
             <tbody>
-              {reports.length ? reports.map((report) => (
+              {loading ? (
+                <tr><td colSpan="10" className="empty-cell">데이터를 불러오는 중입니다.</td></tr>
+              ) : reports.length ? reports.map((report) => (
                 <tr key={report.id}>
                   <td>{report.report_date}</td>
                   <td>{report.agency}</td>
                   <td>{report.report_type}</td>
-                  <td>{report.item_name}</td>
+                  <td><strong>{report.item_name}</strong></td>
                   <td>{report.variety_name}</td>
                   <td>{report.specification || "-"}</td>
                   <td>{report.quantity.toLocaleString()} {report.unit}</td>
                   <td>{report.customer || "-"}</td>
                   <td><span className={`status ${statusClass(report.status)}`}>{report.status}</span></td>
                   <td>
-                    <button className="table-button edit" onClick={() => navigate(`/reports/${report.id}/edit`)}>수정</button>
-                    <button className="table-button delete" onClick={() => remove(report.id)}>삭제</button>
+                    <button className="table-button edit" onClick={() => navigate(`/reports/${report.id}/edit`)}>
+                      <Pencil size={15} />
+                    </button>
+                    <button className="table-button delete" onClick={() => remove(report.id)}>
+                      <Trash2 size={15} />
+                    </button>
                   </td>
                 </tr>
               )) : (

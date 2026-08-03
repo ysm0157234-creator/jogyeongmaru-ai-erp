@@ -1,9 +1,10 @@
-# 조경마루 AI ERP v0.1
+# 조경마루 AI ERP v0.2
 
 React + FastAPI + PostgreSQL 기반의 조경마루 업무관리 시스템입니다.
 
-## v0.1 기능
+## v0.2 기능
 
+- 토스 스타일 UI 개편
 - JWT 로그인
 - 대시보드
 - 생산·판매 신고 등록
@@ -71,3 +72,14 @@ npm install
 cp .env.example .env
 npm run dev
 ```
+
+## v0.2 변경사항
+
+- 전체 UI를 토스 스타일로 개편
+- 로그인 화면 전면 개편
+- 대시보드 카드 디자인 개선
+- 신고 목록 검색/필터 UX 개선
+- 신고 등록을 3단계 입력 방식으로 변경
+- 로딩/오류 상태 추가
+- passlib/bcrypt 제거
+- pwdlib + Argon2 비밀번호 해시 적용
