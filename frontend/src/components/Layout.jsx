@@ -15,11 +15,12 @@ import { clearToken } from "../services/api";
 
 const menus = [
   ["/", "대시보드", LayoutDashboard],
-  ["/reports", "생산·판매 신고", FileText],
+  ["/ai-reports", "AI 신고 생성", Sparkles],
+  ["/reports", "신고 검토함", FileText],
   ["/inventory", "재고관리", Boxes],
   ["/partners", "거래처관리", Building2],
   ["/export", "수출입관리", Ship],
-  ["/automation", "자동신고", Bot],
+  ["/automation", "정부 사이트 자동입력", Bot],
   ["/settings", "설정", Settings],
 ];
 

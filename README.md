@@ -1,4 +1,4 @@
-# 조경마루 AI ERP v0.2.1
+# 조경마루 AI ERP v1.2 - Sunlover AI 신고
 
 React + FastAPI + PostgreSQL 기반의 조경마루 업무관리 시스템입니다.
 
@@ -94,3 +94,16 @@ npm run dev
 - 중첩 라우팅 구조를 Outlet 방식으로 수정
 - 화면 오류 표시용 ErrorBoundary 추가
 - Render Node.js 버전 고정
+
+
+## v1.2 Sunlover AI 신고
+
+- `Tulipa spp. Sunlover` 품종명 입력 지원
+- AI 신고 생성 화면 추가
+- Google Drive 완료사례 및 관련 수입자료 링크 표시
+- RHS·공급사 기반 품종 특성 자동 작성
+- Wikimedia Commons 사진 후보 2장 표시 및 선택
+- 품종의 특성 설명/육성과정 초안 자동 생성
+- 필요한 첨부서류와 확인사항 표시
+- AI 신고 초안을 PostgreSQL에 저장
+- 다음 단계: Google Drive API 실시간 검색 및 정부 사이트 자동입력

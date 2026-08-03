@@ -7,7 +7,7 @@ from app.core.config import get_settings
 from app.core.database import Base, SessionLocal, engine
 from app.core.security import hash_password
 from app.models import User
-from app.routers import auth, reports
+from app.routers import auth, reports, ai_reports
 
 settings = get_settings()
 
@@ -36,7 +36,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.1.0",
+    version="1.2.0",
     lifespan=lifespan,
 )
 
@@ -50,10 +50,11 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(reports.router)
+app.include_router(ai_reports.router)
 
 @app.get("/")
 def root():
-    return {"name": settings.app_name, "version": "0.1.0"}
+    return {"name": settings.app_name, "version": "1.2.0"}
 
 @app.get("/health")
 def health():

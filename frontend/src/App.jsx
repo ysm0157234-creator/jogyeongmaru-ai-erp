@@ -6,6 +6,7 @@ import DashboardPage from "./pages/DashboardPage";
 import ReportsPage from "./pages/ReportsPage";
 import ReportFormPage from "./pages/ReportFormPage";
 import ComingSoonPage from "./pages/ComingSoonPage";
+import AIReportPage from "./pages/AIReportPage";
 
 function ProtectedLayout() {
   if (!getToken()) {
@@ -27,7 +28,8 @@ export default function App() {
         <Route path="inventory" element={<ComingSoonPage title="재고관리" />} />
         <Route path="partners" element={<ComingSoonPage title="거래처관리" />} />
         <Route path="export" element={<ComingSoonPage title="수출입관리" />} />
-        <Route path="automation" element={<ComingSoonPage title="자동신고" />} />
+        <Route path="ai-reports" element={<AIReportPage />} />
+        <Route path="automation" element={<ComingSoonPage title="정부 사이트 자동입력" />} />
         <Route path="settings" element={<ComingSoonPage title="설정" />} />
       </Route>
 
