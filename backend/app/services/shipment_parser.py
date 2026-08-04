@@ -32,13 +32,13 @@ def tokens_for_variety(variety_name: str) -> list[str]:
 
     candidates = {
         raw,
-        raw.replace("Sunlover", "Sun Lover"),
-        raw.replace("Sun Lover", "Sunlover"),
         raw.replace("spp.", ""),
         raw.replace("spp", ""),
         cultivar,
         cultivar.replace(" ", ""),
-        "Tulipa " + cultivar if cultivar else "",
+        raw.replace("'", "").replace('"', ""),
+        raw.replace("-", " "),
+        raw.replace(" ", ""),
     }
 
     return sorted(
@@ -62,7 +62,7 @@ def row_score(row_text: str, terms: list[str]) -> int:
         if term and term in normalized_row:
             best = max(best, 200 - index)
 
-    # Sun Lover처럼 띄어쓰기 차이가 있는 경우
+    # 띄어쓰기·구두점 차이가 있는 경우
     compact = normalized_row.replace(" ", "")
     for index, term in enumerate(terms):
         if term and term.replace(" ", "") in compact:

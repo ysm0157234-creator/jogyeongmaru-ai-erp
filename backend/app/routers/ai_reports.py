@@ -21,6 +21,8 @@ from .deps import get_current_user
 
 router = APIRouter(prefix="/api/ai-reports", tags=["ai-reports"])
 
+BUILD_VERSION = "v9.0-strict-dynamic-variety"
+
 
 def get_owned_draft(db: Session, draft_id: int, user: User) -> AIDraft:
     draft = db.get(AIDraft, draft_id)
@@ -61,7 +63,12 @@ def drive_status(_: User = Depends(get_current_user)):
         "drive_configured": all(checks[key] for key in ("GOOGLE_SERVICE_ACCOUNT_JSON", "SHIPMENT_OVERVIEW_FILE_ID", "IMPORT_2025_FOLDER_ID")),
         "research_configured": all(checks[key] for key in ("GOOGLE_SEARCH_API_KEY", "GOOGLE_SEARCH_ENGINE_ID", "GEMINI_API_KEY")),
         "missing_environment_variables": missing,
-        "message": "Google Drive·검색·Gemini 연결 준비 완료" if not missing else "누락된 Render 환경변수: " + ", ".join(missing),
+        "build_version": BUILD_VERSION,
+        "message": (
+            f"Google Drive·검색·Gemini 연결 준비 완료 ({BUILD_VERSION})"
+            if not missing
+            else "누락된 Render 환경변수: " + ", ".join(missing)
+        ),
     }
 
 
@@ -72,6 +79,11 @@ def generate_ai_report(payload: AIGenerateRequest, db: Session = Depends(get_db)
         raise HTTPException(status_code=422, detail="신고할 품종명을 입력하세요.")
     try:
         result = research_variety(variety_name, payload.agency)
+        if str(result.get("research_query", "")).strip().lower() != variety_name.lower():
+            raise PlantResearchError(
+                "조사 결과의 품종 식별자가 현재 입력값과 일치하지 않습니다."
+            )
+        result["build_version"] = BUILD_VERSION
     except (GoogleSearchNotConfiguredError, GeminiNotConfiguredError) as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     except (GeminiError, PlantResearchError) as error:

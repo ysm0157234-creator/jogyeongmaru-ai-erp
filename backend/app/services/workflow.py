@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from PIL import Image, UnidentifiedImageError
+
 from app.core.config import get_settings
 from app.services.drive_service import DriveFile, FOLDER_MIME, GoogleDriveService
 from app.services.invoice_processor import create_invoice_extract_xlsx, extract_invoice_pdf_pages, filter_invoice_xlsx
@@ -145,38 +147,71 @@ def candidate_urls(candidate: dict) -> list[str]:
     return output
 
 
+def _normalize_image_to_jpeg(raw_data: bytes) -> bytes:
+    if len(raw_data) < 500:
+        raise RequiredFileMissingError("사진 데이터가 너무 작습니다.")
+
+    head = raw_data[:200].lstrip().lower()
+    if head.startswith(b"<!doctype") or head.startswith(b"<html"):
+        raise RequiredFileMissingError(
+            "사진 주소에서 이미지가 아니라 웹페이지가 반환되었습니다."
+        )
+
+    try:
+        with Image.open(io.BytesIO(raw_data)) as image:
+            image.load()
+
+            if image.mode in ("RGBA", "LA", "P"):
+                rgba = image.convert("RGBA")
+                background = Image.new("RGB", rgba.size, "white")
+                background.paste(rgba, mask=rgba.getchannel("A"))
+                image = background
+            elif image.mode != "RGB":
+                image = image.convert("RGB")
+
+            image.thumbnail((2400, 2400), Image.Resampling.LANCZOS)
+            output = io.BytesIO()
+            image.save(output, format="JPEG", quality=92, optimize=True)
+            converted = output.getvalue()
+    except UnidentifiedImageError as exc:
+        raise RequiredFileMissingError(
+            "다운로드한 파일을 이미지로 인식하지 못했습니다."
+        ) from exc
+
+    if len(converted) < 1000:
+        raise RequiredFileMissingError("JPEG 변환 결과가 올바르지 않습니다.")
+    return converted
+
+
 def download_image(urls: list[str]) -> bytes:
     last_error: Exception | None = None
-    for url in urls:
+
+    for url in [item for item in urls if item]:
         for attempt in range(4):
             try:
-                referer = "https://commons.wikimedia.org/" if "wikimedia" in url.lower() else "https://www.google.com/"
-                request = Request(url, headers={
-                    "User-Agent": "Mozilla/5.0 Jogyeongmaru-AI-ERP/8.0",
-                    "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-                    "Referer": referer,
-                })
+                request = Request(
+                    url,
+                    headers={
+                        "User-Agent": (
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                            "AppleWebKit/537.36 Chrome/124 Safari/537.36"
+                        ),
+                        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+                        "Referer": "https://www.google.com/",
+                    },
+                )
                 with urlopen(request, timeout=60) as response:
-                    content_type = response.headers.get("Content-Type", "").lower()
-                    if not content_type.startswith("image/"):
-                        raise RequiredFileMissingError(f"이미지 형식이 아닙니다: {content_type}")
-                    data = response.read(20 * 1024 * 1024)
-                    if len(data) < 1000:
-                        raise RequiredFileMissingError("사진 데이터가 너무 작습니다.")
-                    return data
-            except HTTPError as error:
-                last_error = error
-                if error.code in (403, 408, 429, 500, 502, 503, 504):
+                    raw = response.read(20 * 1024 * 1024)
+                return _normalize_image_to_jpeg(raw)
+            except Exception as exc:
+                last_error = exc
+                if attempt < 3:
+                    import time
                     time.sleep(2 * (attempt + 1))
-                    continue
-                break
-            except (URLError, TimeoutError, ConnectionError) as error:
-                last_error = error
-                time.sleep(2 * (attempt + 1))
-            except Exception as error:
-                last_error = error
-                break
-    raise RequiredFileMissingError(f"사진을 내려받지 못했습니다: {last_error}")
+
+    raise RequiredFileMissingError(
+        f"모든 사진 후보 다운로드 또는 JPEG 변환에 실패했습니다: {last_error}"
+    )
 
 
 def process_invoice(file: DriveFile, data: bytes, variety: str, shipment: str, values: dict) -> tuple[bytes, str]:

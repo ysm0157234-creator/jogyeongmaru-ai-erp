@@ -18,14 +18,32 @@ export default function AIReportPage() {
 
   async function generate(event) {
     event.preventDefault();
-    setLoading(true); setError(""); setFileStatus("");
+    const requestedName = varietyName.trim();
+    setDraft(null);
+    setLoading(true);
+    setError("");
+    setFileStatus("");
+
     try {
-      setDraft(await api("/api/ai-reports/generate", {
+      const response = await api("/api/ai-reports/generate", {
         method: "POST",
-        body: JSON.stringify({ variety_name: varietyName, agency }),
-      }));
-    } catch (err) { setError(err.message); }
-    finally { setLoading(false); }
+        body: JSON.stringify({ variety_name: requestedName, agency }),
+      });
+
+      const returnedQuery = String(response?.result_data?.research_query || "").trim();
+      if (!returnedQuery || returnedQuery.toLowerCase() !== requestedName.toLowerCase()) {
+        throw new Error(
+          `서버가 다른 품종 결과를 반환했습니다. 요청: ${requestedName}, 결과: ${returnedQuery || "확인 불가"}`
+        );
+      }
+
+      setDraft(response);
+    } catch (err) {
+      setDraft(null);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function generateFiles() {
@@ -90,7 +108,7 @@ function AIResult({ draft, setDraft, setError }) {
   }
 
   return <div className="ai-result">
-    <section className="panel ai-result-header"><div><p className="eyebrow">AI DRAFT #{draft.id}</p>{editing?<div className="edit-title-grid"><input value={form.matched_name} onChange={e=>change(["matched_name"],e.target.value)}/><input value={form.korean_name} onChange={e=>change(["korean_name"],e.target.value)}/></div>:<><h2>{form.matched_name}</h2><p className="muted">{form.korean_name}</p></>}</div><span className="status pending">{draft.status}</span></section>
+    <section className="panel ai-result-header"><div><p className="eyebrow">AI DRAFT #{draft.id} · {form.build_version || "버전 확인 불가"}</p>{editing?<div className="edit-title-grid"><input value={form.matched_name} onChange={e=>change(["matched_name"],e.target.value)}/><input value={form.korean_name} onChange={e=>change(["korean_name"],e.target.value)}/></div>:<><h2>{form.matched_name}</h2><p className="muted">{form.korean_name}</p></>}</div><span className="status pending">{draft.status}</span></section>
     <section className="ai-summary-grid">
       <Card editing={editing} label="학명" value={form.scientific_name} onChange={v=>change(["scientific_name"],v)}/>
       <Card editing={editing} label="꽃 색상" value={form.classification.flower_color} onChange={v=>change(["classification","flower_color"],v)}/>
