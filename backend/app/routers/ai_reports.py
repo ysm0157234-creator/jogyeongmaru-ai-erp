@@ -147,18 +147,11 @@ def normalize_name(value: str) -> str:
     return "".join(ch.lower() for ch in value if ch.isalnum())
 
 
-def validate_trial_name(value: str) -> None:
-    valid_names = {
-        normalize_name("Tulipa spp. Sunlover"),
-        normalize_name("Tulipa Sunlover"),
-        normalize_name("Sunlover"),
-        normalize_name("썬러버"),
-        normalize_name("튤립 썬러버"),
-    }
-    if normalize_name(value) not in valid_names:
+def validate_variety_name(value: str) -> None:
+    if not str(value or "").strip():
         raise HTTPException(
-            status_code=404,
-            detail="현재 시험 버전은 Tulipa spp. Sunlover만 처리할 수 있습니다.",
+            status_code=422,
+            detail="품종명을 입력하세요.",
         )
 
 
@@ -168,9 +161,30 @@ def generate_ai_report(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    validate_trial_name(payload.variety_name)
+    validate_variety_name(payload.variety_name)
     result = dict(SUNLOVER_RESULT)
+    requested_name = payload.variety_name.strip()
+
+    result["matched_name"] = requested_name
+    result["korean_name"] = requested_name
+    result["scientific_name"] = requested_name
+    result["genus"] = requested_name.split()[0] if requested_name.split() else requested_name
+    result["cultivar"] = requested_name.split()[-1] if requested_name.split() else requested_name
+    result["match_confidence"] = 0
     result["requested_agency"] = payload.agency
+    result["characteristics_draft"] = (
+        f"{requested_name} 품종의 주요 형태적·생육 특성은 "
+        "공급사 자료와 공신력 있는 품종 자료를 확인하여 최종 작성해야 합니다."
+    )
+    result["breeding_process_draft"] = (
+        f"{requested_name} 품종은 해외 생산업체를 통해 수입된 품종으로, "
+        "육성자·육성연도·증식방법은 공급사 증빙자료 확인 후 최종 기재합니다."
+    )
+    result["warnings"] = [
+        "품종명·학명·한글명은 초안 수정에서 최종 확인하세요.",
+        "사진 후보는 현재 기본 예시이므로 해당 품종 사진으로 교체해야 합니다.",
+        "Shipment Overview 또는 2025 수입 근거자료를 사람이 최종 확인해야 합니다.",
+    ]
 
     draft = AIDraft(
         query_name=payload.variety_name,
@@ -276,7 +290,7 @@ def generate_files(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    validate_trial_name(payload.variety_name)
+    validate_variety_name(payload.variety_name)
 
     draft = db.get(AIDraft, payload.draft_id)
     if not draft or draft.created_by != current_user.id:
@@ -301,6 +315,6 @@ def generate_files(
         io.BytesIO(zip_bytes),
         media_type="application/zip",
         headers={
-            "Content-Disposition": 'attachment; filename="Tulipa_Sunlover_complete.zip"',
+            "Content-Disposition": 'attachment; filename="jogyeongmaru_report_package.zip"',
         },
     )

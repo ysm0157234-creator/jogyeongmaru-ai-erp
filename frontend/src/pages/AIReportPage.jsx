@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, FileSearch, Image as ImageIcon, LoaderCirc
 import { api, apiDownload } from "../services/api";
 
 export default function AIReportPage() {
-  const [varietyName, setVarietyName] = useState("Tulipa spp. Sunlover");
+  const [varietyName, setVarietyName] = useState("");
   const [agency, setAgency] = useState("국립종자원");
   const [draft, setDraft] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -38,7 +38,7 @@ export default function AIReportPage() {
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.href = url; link.download = "Tulipa_Sunlover_complete.zip";
+      link.href = url; link.download = "jogyeongmaru_report_package.zip";
       document.body.appendChild(link); link.click(); link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       setFileStatus("완료: ZIP 다운로드를 시작했습니다.");
