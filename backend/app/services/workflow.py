@@ -47,22 +47,142 @@ def shipping_folder(drive,supplier):
     if not f: raise RequiredFileMissingError(f"{supplier.name} 안에서 Shipping document 폴더를 찾지 못했습니다.")
     return f
 
-def container_folder(drive,shipping,num):
-    children=drive.list_children(shipping.id)
-    names=[f'Container {num}',f'Container{num}',f'Container_{num}',str(num)]
-    f=match_folder(children,names)
-    if f: return f
-    for x in children:
-        if folder(x) and 'container' in norm(x.name) and str(num) in norm(x.name): return x
-    raise RequiredFileMissingError(f"{shipping.name} 안에서 Container {num} 폴더를 찾지 못했습니다.")
+def container_numbers_from_name(name):
+    """
+    실제 폴더명 예:
+    - 251212_container 7_MAEU262944634
+    - 251208_container 3,5_COSU6437694570
+    - 251222_container 9,10_MAEU263223238
+    """
+    value = str(name or "")
+    match = re.search(
+        r"(?i)container[\s_-]*([0-9,\s]+)",
+        value,
+    )
+    if not match:
+        return set()
 
-def docs_in_container(drive,c):
-    items=drive.walk(c.id,max_depth=3,max_items=700)
-    inv=next(iter(sorted([x for x in items if is_invoice(x)],key=lambda x:x.name.lower())),None)
-    qua=next(iter(sorted([x for x in items if is_quarantine(x)],key=lambda x:x.name.lower())),None)
-    if not inv: raise RequiredFileMissingError(f"{c.name} 안에서 인보이스를 찾지 못했습니다.")
-    if not qua: raise RequiredFileMissingError(f"{c.name} 안에서 검역합격증 또는 Phyto 파일을 찾지 못했습니다.")
-    return inv,qua
+    return {
+        int(number)
+        for number in re.findall(r"\d+", match.group(1))
+    }
+
+
+def container_folder(
+    drive,
+    shipping,
+    number,
+):
+    children = drive.list_children(shipping.id)
+    folders = [item for item in children if folder(item)]
+
+    # 정확한 컨테이너 번호가 포함된 폴더만 선택
+    exact = [
+        item
+        for item in folders
+        if number in container_numbers_from_name(item.name)
+    ]
+
+    if exact:
+        # 여러 개면 이름순 첫 번째
+        return sorted(
+            exact,
+            key=lambda item: item.name.lower(),
+        )[0]
+
+    # 단순 이름 형태도 지원
+    names = [
+        f"Container {number}",
+        f"Container{number}",
+        f"Container_{number}",
+    ]
+    item = match_folder(folders, names)
+    if item:
+        return item
+
+    available = ", ".join(
+        item.name
+        for item in folders[:20]
+    )
+    raise RequiredFileMissingError(
+        f"{shipping.name} 안에서 Container {number} 폴더를 찾지 못했습니다. "
+        f"확인된 폴더: {available}"
+    )
+
+
+def docs_in_container(
+    drive,
+    container,
+):
+    # 실제 구조상 인보이스와 Phyto는 Container 폴더 바로 아래에 있음
+    direct_items = drive.list_children(container.id)
+
+    invoices = sorted(
+        [
+            item
+            for item in direct_items
+            if is_invoice(item)
+            and "freight invoice" not in item.name.lower()
+        ],
+        key=lambda item: (
+            0 if "_invoice_" in item.name.lower() else 1,
+            item.name.lower(),
+        ),
+    )
+
+    quarantines = sorted(
+        [
+            item
+            for item in direct_items
+            if is_quarantine(item)
+        ],
+        key=lambda item: (
+            0 if "phyto" in item.name.lower() else 1,
+            item.name.lower(),
+        ),
+    )
+
+    # 바로 아래에서 못 찾았을 때만 하위 폴더 제한 검색
+    if not invoices or not quarantines:
+        sub_items = drive.walk(
+            container.id,
+            max_depth=2,
+            max_items=300,
+        )
+
+        if not invoices:
+            invoices = sorted(
+                [
+                    item
+                    for item in sub_items
+                    if is_invoice(item)
+                    and "freight invoice" not in item.name.lower()
+                ],
+                key=lambda item: item.name.lower(),
+            )
+
+        if not quarantines:
+            quarantines = sorted(
+                [
+                    item
+                    for item in sub_items
+                    if is_quarantine(item)
+                ],
+                key=lambda item: item.name.lower(),
+            )
+
+    if not invoices:
+        raise RequiredFileMissingError(
+            f"{container.name} 안에서 일반 Invoice 파일을 찾지 못했습니다."
+        )
+
+    if not quarantines:
+        raise RequiredFileMissingError(
+            f"{container.name} 안에서 Phyto 또는 검역파일을 찾지 못했습니다."
+        )
+
+    return invoices[0], quarantines[0]
+
 
 def parent_folder(drive,child,items):
     mp={x.id:x for x in items}
