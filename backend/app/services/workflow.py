@@ -8,158 +8,163 @@ from datetime import datetime
 from urllib.request import Request, urlopen
 
 from app.core.config import get_settings
-from app.services.drive_service import (
-    DriveFile,
-    FOLDER_MIME,
-    GoogleDriveService,
-)
+from app.services.drive_service import DriveFile, FOLDER_MIME, GoogleDriveService
 from app.services.invoice_processor import (
     create_invoice_extract_xlsx,
     extract_invoice_pdf_pages,
     filter_invoice_xlsx,
-    pdf_contains,
-    workbook_contains,
 )
-from app.services.report_generator import build_docx, build_pdf_summary
+from app.services.report_generator import (
+    build_breeding_document,
+    build_characteristics_document,
+    build_main_report,
+    build_pdf_summary,
+    build_sample_pledge_document,
+)
 from app.services.shipment_parser import ShipmentMatch, find_variety_in_workbook
 
 
-SUNLOVER = {
-    "matched_name": "Tulipa spp. Sunlover",
-    "korean_name": "튤립 썬러버",
-    "scientific_name": "Tulipa 'Sun Lover'",
-    "characteristics": (
-        "겹꽃형 튤립 품종으로 개화 초기에는 황금빛 노란색을 띠고 "
-        "개화가 진행되면서 주황빛 적색으로 변화한다."
-    ),
-    "breeding_process": (
-        "상기 품종을 국내에 수입·유통하기 위하여 네덜란드 수출업체를 통해 "
-        "적법하게 구근을 수입하였다."
-    ),
-}
-
-DOCUMENT_EXTENSIONS = (".xlsx", ".xlsm", ".pdf")
+class RequiredFileMissingError(RuntimeError):
+    pass
 
 
 def safe_name(value: str) -> str:
     return re.sub(r'[\\/:*?"<>|]+', "_", value).strip()
 
 
-def variety_terms(name: str) -> list[str]:
-    values = [
-        name,
-        name.replace("Sunlover", "Sun Lover"),
-        name.replace("Sun Lover", "Sunlover"),
-        name.replace("spp.", "").strip(),
-        name.split()[-1] if name.split() else name,
-    ]
-    return list(dict.fromkeys(value for value in values if value))
-
-
 def is_invoice(file: DriveFile) -> bool:
-    lower = file.name.lower()
+    name = file.name.lower()
     return (
         file.mime_type != FOLDER_MIME
-        and lower.endswith(DOCUMENT_EXTENSIONS)
-        and ("invoice" in lower or "인보이스" in lower)
+        and ("invoice" in name or "인보이스" in name)
+        and name.endswith((".xlsx", ".xlsm", ".pdf"))
     )
 
 
-def file_contains(
+def is_quarantine(file: DriveFile) -> bool:
+    name = file.name.lower()
+    return (
+        file.mime_type != FOLDER_MIME
+        and ("검역" in name or "quarantine" in name or "phytosanitary" in name)
+        and name.endswith((".pdf", ".jpg", ".jpeg", ".png"))
+    )
+
+
+def choose_first(files: list[DriveFile], predicate) -> DriveFile | None:
+    matches = [file for file in files if predicate(file)]
+    return sorted(matches, key=lambda file: file.name.lower())[0] if matches else None
+
+
+def find_folder_containing_file(
     drive: GoogleDriveService,
-    file: DriveFile,
-    terms: list[str],
-) -> tuple[bool, bytes]:
-    data = drive.download(file.id)
-    lower = file.name.lower()
-    if lower.endswith((".xlsx", ".xlsm")):
-        return workbook_contains(data, terms), data
-    if lower.endswith(".pdf"):
-        return pdf_contains(data, terms), data
-    return False, data
-
-
-def choose_invoice_from_folder(
-    drive: GoogleDriveService,
-    folder: DriveFile,
-    variety_name: str,
-) -> tuple[DriveFile, bytes]:
-    files = drive.walk(folder.id, max_depth=3, max_items=500)
-    invoices = [file for file in files if is_invoice(file)]
-    if not invoices:
-        raise LookupError(
-            f"'{folder.name}' 폴더 안에서 Invoice 파일을 찾지 못했습니다."
-        )
-
-    terms = variety_terms(variety_name)
-    for file in sorted(invoices, key=lambda item: item.name.lower()):
+    root_folder_id: str,
+    wanted_file_id: str,
+) -> DriveFile | None:
+    all_items = drive.walk(root_folder_id, max_depth=5, max_items=2000)
+    file_map = {item.id: item for item in all_items}
+    wanted = file_map.get(wanted_file_id)
+    if not wanted:
+        return None
+    parent_ids = wanted.parents or []
+    for parent_id in parent_ids:
+        parent = file_map.get(parent_id)
+        if parent and parent.mime_type == FOLDER_MIME:
+            return parent
         try:
-            contains, data = file_contains(drive, file, terms)
-            if contains:
-                return file, data
+            metadata = drive.get_metadata(parent_id)
+            if metadata.mime_type == FOLDER_MIME:
+                return metadata
         except Exception:
             continue
-
-    # 정확한 품종이 없어도 해당 Shipment 폴더의 첫 인보이스를 사용한다.
-    first = sorted(invoices, key=lambda item: item.name.lower())[0]
-    return first, drive.download(first.id)
+    return None
 
 
-def fallback_tulipa_invoice(
+def find_tulipa_invoice(
     drive: GoogleDriveService,
-    import_folder_id: str,
-) -> tuple[DriveFile, bytes]:
-    # Shipment Overview에 품종이 없을 때는 2026수입 안에서 Tulipa가 들어간
-    # 아무 인보이스를 양식으로 사용한다.
-    files = drive.walk(import_folder_id, max_depth=5, max_items=1800)
+    root_folder_id: str,
+) -> tuple[DriveFile, DriveFile]:
+    files = drive.walk(root_folder_id, max_depth=5, max_items=2000)
     invoices = [file for file in files if is_invoice(file)]
-
-    for file in sorted(invoices, key=lambda item: item.name.lower()):
+    for invoice in sorted(invoices, key=lambda file: file.name.lower()):
         try:
-            contains, data = file_contains(drive, file, ["Tulipa"])
-            if contains:
-                return file, data
+            data = drive.download(invoice.id)
+            from app.services.invoice_processor import workbook_contains, pdf_contains
+            if invoice.name.lower().endswith((".xlsx", ".xlsm")):
+                found = workbook_contains(data, ["Tulipa"])
+            else:
+                found = pdf_contains(data, ["Tulipa"])
+            if found:
+                folder = find_folder_containing_file(
+                    drive,
+                    root_folder_id,
+                    invoice.id,
+                )
+                if folder:
+                    return folder, invoice
         except Exception:
             continue
-
-    raise LookupError(
-        "Shipment Overview에 품종이 없고, 2026수입 폴더에서도 "
+    raise RequiredFileMissingError(
+        "Shipment Overview에서 품종을 찾지 못했고, 2026수입에서도 "
         "Tulipa가 포함된 인보이스를 찾지 못했습니다."
     )
 
 
+def download_image(url: str) -> bytes:
+    try:
+        request = Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 Jogyeongmaru-AI-ERP/4.0",
+                "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+            },
+        )
+        with urlopen(request, timeout=40) as response:
+            content_type = response.headers.get("Content-Type", "")
+            if not content_type.startswith("image/"):
+                raise RequiredFileMissingError(
+                    f"사진 URL이 이미지가 아닙니다: {url}"
+                )
+            data = response.read(15 * 1024 * 1024)
+            if len(data) < 1000:
+                raise RequiredFileMissingError(
+                    f"사진 데이터가 너무 작습니다: {url}"
+                )
+            return data
+    except RequiredFileMissingError:
+        raise
+    except Exception as exc:
+        raise RequiredFileMissingError(
+            f"사진을 내려받지 못했습니다: {url} / {exc}"
+        ) from exc
+
+
+def selected_image_url(draft_data: dict, role: str) -> str:
+    selected_id = draft_data.get("selected_images", {}).get(role)
+    for image in draft_data.get("image_candidates", []):
+        if image.get("id") == selected_id:
+            return image.get("download_url") or image.get("preview_url") or ""
+    raise RequiredFileMissingError(
+        f"{'전체 모습' if role == 'overall' else '꽃 근접'} 사진이 선택되지 않았습니다."
+    )
+
+
 def process_invoice(
-    source: DriveFile,
-    source_data: bytes,
+    invoice_file: DriveFile,
+    invoice_data: bytes,
     variety_name: str,
     shipment: str,
     overview_values: dict,
-) -> tuple[bytes, str, str]:
-    lower = source.name.lower()
-
+) -> tuple[bytes, str]:
+    lower = invoice_file.name.lower()
     try:
         if lower.endswith((".xlsx", ".xlsm")):
-            output = filter_invoice_xlsx(
-                source_data,
-                variety_name,
-                shipment,
-            )
             return (
-                output,
-                f"{safe_name(variety_name)}_신고용_invoice.xlsx",
-                f"원본 XLSX 가공: {source.name}",
+                filter_invoice_xlsx(invoice_data, variety_name, shipment),
+                f"06_{safe_name(variety_name)}_신고용_invoice.xlsx",
             )
-
         if lower.endswith(".pdf"):
-            output, pages = extract_invoice_pdf_pages(
-                source_data,
-                variety_name,
-            )
-            return (
-                output,
-                f"{safe_name(variety_name)}_신고용_invoice.pdf",
-                f"원본 PDF 품종 페이지 {pages}장 추출: {source.name}",
-            )
+            output, _ = extract_invoice_pdf_pages(invoice_data, variety_name)
+            return output, f"06_{safe_name(variety_name)}_신고용_invoice.pdf"
     except Exception:
         pass
 
@@ -168,195 +173,224 @@ def process_invoice(
             variety_name,
             shipment,
             overview_values,
-            source.name,
+            invoice_file.name,
         ),
-        f"{safe_name(variety_name)}_신고용_invoice_발췌.xlsx",
-        f"원본 인보이스 양식을 참고한 신규 발췌본: {source.name}",
+        f"06_{safe_name(variety_name)}_신고용_invoice_발췌.xlsx",
     )
-
-
-def download_web_image(url: str | None) -> bytes | None:
-    if not url:
-        return None
-    try:
-        request = Request(
-            url,
-            headers={"User-Agent": "Mozilla/5.0 Jogyeongmaru-ERP/3.0"},
-        )
-        with urlopen(request, timeout=25) as response:
-            content_type = response.headers.get("Content-Type", "")
-            if not content_type.startswith("image/"):
-                return None
-            return response.read(12 * 1024 * 1024)
-    except Exception:
-        return None
-
-
-def selected_photo(draft_data: dict | None, role: str) -> dict | None:
-    if not draft_data:
-        return None
-    selected_id = draft_data.get("selected_images", {}).get(role)
-    for image in draft_data.get("image_candidates", []):
-        if image.get("id") == selected_id:
-            return image
-    return None
 
 
 def run_workflow(
     variety_name: str,
-    draft_data: dict | None = None,
+    draft_data: dict,
 ) -> tuple[bytes, dict]:
     settings = get_settings()
     drive = GoogleDriveService()
-    search_log: list[str] = []
+    log: list[str] = []
 
     shipment_bytes = drive.download(settings.shipment_overview_file_id)
-    overview_values: dict = {}
     matched_folder: DriveFile | None = None
 
     try:
         match = find_variety_in_workbook(shipment_bytes, variety_name)
-        overview_values = match.values
-        search_log.append(
-            f"Shipment Overview에서 품종 발견: {match.sheet_name} {match.row_number}행"
+        log.append(
+            f"Shipment Overview {match.sheet_name} 시트 {match.row_number}행에서 품종 발견"
         )
-        search_log.append(f"H열 Shipment 값: {match.shipment}")
-
+        log.append(f"H열 Shipment: {match.shipment}")
         matched_folder = drive.find_child_folder(
             settings.import_2026_folder_id,
             match.shipment,
         )
         if not matched_folder:
-            raise LookupError(
-                f"2026수입 바로 아래에서 Shipment 폴더 "
-                f"'{match.shipment}'를 찾지 못했습니다."
+            raise RequiredFileMissingError(
+                f"2026수입에서 H열 Shipment와 같은 폴더를 찾지 못했습니다: {match.shipment}"
             )
-
-        search_log.append(f"Shipment 폴더 발견: {matched_folder.name}")
-        source_invoice, source_data = choose_invoice_from_folder(
-            drive,
-            matched_folder,
-            variety_name,
-        )
-        search_log.append(f"폴더 내부 인보이스 선택: {source_invoice.name}")
-        source_mode = "shipment_overview_h_column"
-
-    except LookupError as primary_error:
-        search_log.append(str(primary_error))
-        source_invoice, source_data = fallback_tulipa_invoice(
+    except LookupError:
+        matched_folder, fallback_invoice = find_tulipa_invoice(
             drive,
             settings.import_2026_folder_id,
         )
-        search_log.append(
-            f"보조 검색: 2026수입에서 Tulipa 포함 인보이스 선택: "
-            f"{source_invoice.name}"
-        )
         match = ShipmentMatch(
-            sheet_name="2026수입 직접 검색",
+            sheet_name="2026수입 Tulipa 보조검색",
             row_number=0,
             description=variety_name,
-            shipment="Shipment Overview 미발견",
+            shipment=matched_folder.name,
             values={
                 "품종명": variety_name,
-                "검색 기준": "Tulipa가 포함된 아무 인보이스",
+                "검색 방식": "Tulipa 포함 인보이스의 폴더 사용",
             },
-            source="tulipa_invoice_fallback",
+            source="tulipa_fallback",
         )
-        overview_values = match.values
-        source_mode = "tulipa_any_invoice_fallback"
+        log.append(
+            f"Shipment Overview 미발견 → Tulipa 인보이스 폴더 사용: {matched_folder.name}"
+        )
 
-    invoice_data, invoice_name, invoice_mode = process_invoice(
-        source_invoice,
-        source_data,
+    folder_files = drive.walk(
+        matched_folder.id,
+        max_depth=3,
+        max_items=700,
+    )
+    invoice_file = choose_first(folder_files, is_invoice)
+    quarantine_file = choose_first(folder_files, is_quarantine)
+
+    if not invoice_file:
+        raise RequiredFileMissingError(
+            f"'{matched_folder.name}' 폴더 안에 인보이스가 없습니다."
+        )
+    if not quarantine_file:
+        raise RequiredFileMissingError(
+            f"'{matched_folder.name}' 폴더 안에 검역합격증이 없습니다."
+        )
+
+    invoice_source_data = drive.download(invoice_file.id)
+    quarantine_data = drive.download(quarantine_file.id)
+
+    overall_url = selected_image_url(draft_data, "overall")
+    closeup_url = selected_image_url(draft_data, "closeup")
+    overall_image = download_image(overall_url)
+    closeup_image = download_image(closeup_url)
+
+    if overall_url == closeup_url:
+        raise RequiredFileMissingError(
+            "전체 모습과 꽃 근접 사진은 서로 다른 사진이어야 합니다."
+        )
+
+    final_name = draft_data.get("matched_name", variety_name)
+    korean_name = draft_data.get("korean_name", "튤립 썬러버")
+    scientific_name = draft_data.get(
+        "scientific_name",
+        "Tulipa 'Sun Lover'",
+    )
+    characteristics = draft_data.get(
+        "characteristics_draft",
+        "",
+    )
+    breeding_process = draft_data.get(
+        "breeding_process_draft",
+        "",
+    )
+    if not characteristics.strip():
+        raise RequiredFileMissingError("품종 특성 설명이 비어 있습니다.")
+    if not breeding_process.strip():
+        raise RequiredFileMissingError("품종 육성과정이 비어 있습니다.")
+
+    invoice_output, invoice_name = process_invoice(
+        invoice_file,
+        invoice_source_data,
         variety_name,
         match.shipment,
-        overview_values,
+        match.values,
     )
 
-    data = draft_data or {}
-    final_name = data.get("matched_name", SUNLOVER["matched_name"])
-    final_korean_name = data.get("korean_name", SUNLOVER["korean_name"])
-    final_scientific_name = data.get(
-        "scientific_name",
-        SUNLOVER["scientific_name"],
-    )
-    final_characteristics = data.get(
-        "characteristics_draft",
-        SUNLOVER["characteristics"],
-    )
-    final_breeding_process = data.get(
-        "breeding_process_draft",
-        SUNLOVER["breeding_process"],
-    )
-
-    overall_meta = selected_photo(data, "overall")
-    closeup_meta = selected_photo(data, "closeup")
-    overall_image = download_web_image(
-        overall_meta.get("preview_url") if overall_meta else None
-    )
-    closeup_image = download_web_image(
-        closeup_meta.get("preview_url") if closeup_meta else None
-    )
-
-    docx = build_docx(
+    main_report = build_main_report(
         final_name,
-        final_korean_name,
-        final_scientific_name,
+        korean_name,
+        scientific_name,
         match.shipment,
-        final_characteristics,
-        final_breeding_process,
-        overall_image=overall_image,
-        closeup_image=closeup_image,
+        characteristics,
+        breeding_process,
+        overall_image,
+        closeup_image,
     )
-    pdf = build_pdf_summary(
+    characteristics_doc = build_characteristics_document(
         final_name,
-        final_korean_name,
-        final_scientific_name,
+        korean_name,
+        scientific_name,
+        characteristics,
+        overall_image,
+        closeup_image,
+    )
+    breeding_doc = build_breeding_document(
+        final_name,
+        korean_name,
+        breeding_process,
+    )
+    pledge_doc = build_sample_pledge_document(
+        final_name,
+        korean_name,
+    )
+    summary_pdf = build_pdf_summary(
+        final_name,
+        scientific_name,
         match.shipment,
-        final_characteristics,
-        final_breeding_process,
+        invoice_file.name,
+        quarantine_file.name,
     )
 
     manifest = {
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "variety": variety_name,
-        "search_mode": source_mode,
-        "search_log": search_log,
-        "shipment_result": {
-            "source": match.source,
-            "sheet_or_file": match.sheet_name,
-            "row": match.row_number,
-            "shipment_h_column": match.shipment,
-            "values": match.values,
+        "shipment": match.shipment,
+        "shipment_source": match.source,
+        "matched_folder": {
+            "id": matched_folder.id,
+            "name": matched_folder.name,
         },
-        "matched_folder": (
-            {"id": matched_folder.id, "name": matched_folder.name}
-            if matched_folder
-            else None
-        ),
-        "source_invoice": {
-            "id": source_invoice.id,
-            "name": source_invoice.name,
+        "invoice_source": {
+            "id": invoice_file.id,
+            "name": invoice_file.name,
         },
-        "invoice_processing": invoice_mode,
-        "selected_images": {
-            "overall": overall_meta,
-            "closeup": closeup_meta,
+        "quarantine_source": {
+            "id": quarantine_file.id,
+            "name": quarantine_file.name,
         },
-        # 기존 라우터 호환
-        "shipment_overview": {"shipment": match.shipment},
+        "photos": {
+            "overall": overall_url,
+            "closeup": closeup_url,
+        },
+        "search_log": log,
+        "generated_files": [
+            "01_생산수입판매신고서_검토안.docx",
+            "02_품종특성설명.docx",
+            "03_품종육성과정.docx",
+            "04_시료제출확약서.docx",
+            f"05_{quarantine_file.name}",
+            invoice_name,
+            "07_품종전체사진.jpg",
+            "08_꽃근접사진.jpg",
+            "09_처리요약.pdf",
+            "manifest.json",
+        ],
     }
 
-    output = io.BytesIO()
     folder = safe_name(variety_name)
+    output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(f"{folder}/신고서_검토안.docx", docx)
-        archive.writestr(f"{folder}/처리요약.pdf", pdf)
-        archive.writestr(f"{folder}/{invoice_name}", invoice_data)
-        if overall_image:
-            archive.writestr(f"{folder}/사진_1_전체모습.jpg", overall_image)
-        if closeup_image:
-            archive.writestr(f"{folder}/사진_2_꽃근접.jpg", closeup_image)
+        archive.writestr(
+            f"{folder}/01_생산수입판매신고서_검토안.docx",
+            main_report,
+        )
+        archive.writestr(
+            f"{folder}/02_품종특성설명.docx",
+            characteristics_doc,
+        )
+        archive.writestr(
+            f"{folder}/03_품종육성과정.docx",
+            breeding_doc,
+        )
+        archive.writestr(
+            f"{folder}/04_시료제출확약서.docx",
+            pledge_doc,
+        )
+        archive.writestr(
+            f"{folder}/05_{safe_name(quarantine_file.name)}",
+            quarantine_data,
+        )
+        archive.writestr(
+            f"{folder}/{invoice_name}",
+            invoice_output,
+        )
+        archive.writestr(
+            f"{folder}/07_품종전체사진.jpg",
+            overall_image,
+        )
+        archive.writestr(
+            f"{folder}/08_꽃근접사진.jpg",
+            closeup_image,
+        )
+        archive.writestr(
+            f"{folder}/09_처리요약.pdf",
+            summary_pdf,
+        )
         archive.writestr(
             f"{folder}/manifest.json",
             json.dumps(

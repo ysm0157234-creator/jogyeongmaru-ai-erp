@@ -1,15 +1,23 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
 import io
-from urllib.parse import quote
+
 from app.core.database import get_db
 from app.models.ai_draft import AIDraft
 from app.models.user import User
-from app.schemas.ai_draft import AIGenerateRequest, AIFileGenerateRequest, AIDraftUpdateRequest, AIDraftResponse
-from .deps import get_current_user
-from app.services.workflow import run_workflow
+from app.schemas.ai_draft import (
+    AIGenerateRequest,
+    AIFileGenerateRequest,
+    AIDraftUpdateRequest,
+    AIDraftResponse,
+)
 from app.services.drive_service import DriveNotConfiguredError
+from app.services.workflow import (
+    RequiredFileMissingError,
+    run_workflow,
+)
+from .deps import get_current_user
 
 router = APIRouter(prefix="/api/ai-reports", tags=["ai-reports"])
 
@@ -100,6 +108,7 @@ SUNLOVER_RESULT = {
             "title": "Sunlover 전체 꽃 형태",
             "preview_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Tulpe%20%27Sunlover%27%20im%20botanischen%20Garten%20in%20M%C3%BCnchen%2001.jpg?width=900",
             "source_url": "https://commons.wikimedia.org/wiki/File:Tulpe_%27Sunlover%27_im_botanischen_Garten_in_M%C3%BCnchen_01.jpg",
+            "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Tulpe%20%27Sunlover%27%20im%20botanischen%20Garten%20in%20M%C3%BCnchen%2001.jpg?width=1600",
             "source": "Wikimedia Commons",
             "license": "Commons 원본 페이지에서 라이선스 확인",
             "recommended": True,
@@ -110,12 +119,15 @@ SUNLOVER_RESULT = {
             "title": "Sunlover 꽃 확대",
             "preview_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Tulpe%20%27Sunlover%27%20im%20botanischen%20Garten%20in%20M%C3%BCnchen%2002.jpg?width=900",
             "source_url": "https://commons.wikimedia.org/wiki/File:Tulpe_%27Sunlover%27_im_botanischen_Garten_in_M%C3%BCnchen_02.jpg",
+            "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Tulpe%20%27Sunlover%27%20im%20botanischen%20Garten%20in%20M%C3%BCnchen%2002.jpg?width=1600",
             "source": "Wikimedia Commons",
             "license": "Commons 원본 페이지에서 라이선스 확인",
             "recommended": True,
             "role": "closeup",
+            "role": "closeup",
         },
     ],
+    "selected_images": {"overall": "commons-01", "closeup": "commons-02"},
     "selected_images": {"overall": "commons-01", "closeup": "commons-02"},
     "required_documents": [
         {"name": "품종의 특성 설명", "status": "초안 생성"},
@@ -134,13 +146,8 @@ SUNLOVER_RESULT = {
 def normalize_name(value: str) -> str:
     return "".join(ch.lower() for ch in value if ch.isalnum())
 
-@router.post("/generate", response_model=AIDraftResponse, status_code=201)
-def generate_ai_report(
-    payload: AIGenerateRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    normalized = normalize_name(payload.variety_name)
+
+def validate_trial_name(value: str) -> None:
     valid_names = {
         normalize_name("Tulipa spp. Sunlover"),
         normalize_name("Tulipa Sunlover"),
@@ -148,13 +155,20 @@ def generate_ai_report(
         normalize_name("썬러버"),
         normalize_name("튤립 썬러버"),
     }
-
-    if normalized not in valid_names:
+    if normalize_name(value) not in valid_names:
         raise HTTPException(
             status_code=404,
-            detail="현재 시험 버전은 Tulipa spp. Sunlover만 자동 생성할 수 있습니다.",
+            detail="현재 시험 버전은 Tulipa spp. Sunlover만 처리할 수 있습니다.",
         )
 
+
+@router.post("/generate", response_model=AIDraftResponse, status_code=201)
+def generate_ai_report(
+    payload: AIGenerateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    validate_trial_name(payload.variety_name)
     result = dict(SUNLOVER_RESULT)
     result["requested_agency"] = payload.agency
 
@@ -170,6 +184,7 @@ def generate_ai_report(
     db.refresh(draft)
     return draft
 
+
 @router.put("/{draft_id}", response_model=AIDraftResponse)
 def update_ai_draft(
     draft_id: int,
@@ -180,11 +195,19 @@ def update_ai_draft(
     draft = db.get(AIDraft, draft_id)
     if not draft or draft.created_by != current_user.id:
         raise HTTPException(status_code=404, detail="AI 신고 초안을 찾을 수 없습니다.")
+
     selected = payload.result_data.get("selected_images", {})
     if not selected.get("overall") or not selected.get("closeup"):
-        raise HTTPException(status_code=422, detail="전체 모습 사진과 꽃 근접 사진을 각각 선택해야 합니다.")
+        raise HTTPException(
+            status_code=422,
+            detail="전체 모습 사진과 꽃 근접 사진을 각각 선택해야 합니다.",
+        )
     if selected["overall"] == selected["closeup"]:
-        raise HTTPException(status_code=422, detail="전체 모습과 꽃 근접 사진은 서로 달라야 합니다.")
+        raise HTTPException(
+            status_code=422,
+            detail="전체 모습과 꽃 근접 사진은 서로 달라야 합니다.",
+        )
+
     draft.result_data = payload.result_data
     draft.status = payload.status
     db.add(draft)
@@ -192,23 +215,13 @@ def update_ai_draft(
     db.refresh(draft)
     return draft
 
+
 @router.get("", response_model=list[AIDraftResponse])
 def list_ai_drafts(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     return db.query(AIDraft).order_by(AIDraft.id.desc()).all()
-
-@router.get("/{draft_id}", response_model=AIDraftResponse)
-def get_ai_draft(
-    draft_id: int,
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
-):
-    draft = db.get(AIDraft, draft_id)
-    if not draft:
-        raise HTTPException(status_code=404, detail="AI 신고 초안을 찾을 수 없습니다.")
-    return draft
 
 
 @router.get("/drive/status")
@@ -222,9 +235,22 @@ def drive_status(_: User = Depends(get_current_user)):
         "message": (
             "Google Drive 연결 준비 완료"
             if settings.google_service_account_json.strip()
-            else "Render에 GOOGLE_SERVICE_ACCOUNT_JSON을 설정해야 실제 Drive 파일을 처리할 수 있습니다."
+            else "Render에 GOOGLE_SERVICE_ACCOUNT_JSON을 설정해야 합니다."
         ),
     }
+
+
+@router.get("/{draft_id}", response_model=AIDraftResponse)
+def get_ai_draft(
+    draft_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    draft = db.get(AIDraft, draft_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="AI 신고 초안을 찾을 수 없습니다.")
+    return draft
+
 
 @router.post("/generate-files")
 def generate_files(
@@ -232,40 +258,31 @@ def generate_files(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    normalized = normalize_name(payload.variety_name)
-    valid_names = {
-        normalize_name("Tulipa spp. Sunlover"),
-        normalize_name("Tulipa Sunlover"),
-        normalize_name("Sunlover"),
-        normalize_name("썬러버"),
-        normalize_name("튤립 썬러버"),
-    }
-    if normalized not in valid_names:
-        raise HTTPException(
-            status_code=404,
-            detail="현재 시험 버전은 Tulipa spp. Sunlover만 파일 생성할 수 있습니다.",
-        )
-    draft_data = None
-    if payload.draft_id is not None:
-        draft = db.get(AIDraft, payload.draft_id)
-        if not draft or draft.created_by != current_user.id:
-            raise HTTPException(status_code=404, detail="AI 신고 초안을 찾을 수 없습니다.")
-        draft_data = draft.result_data
+    validate_trial_name(payload.variety_name)
+
+    draft = db.get(AIDraft, payload.draft_id)
+    if not draft or draft.created_by != current_user.id:
+        raise HTTPException(status_code=404, detail="저장된 AI 신고 초안을 찾을 수 없습니다.")
 
     try:
-        zip_bytes, manifest = run_workflow(payload.variety_name, draft_data=draft_data)
+        zip_bytes, _ = run_workflow(
+            payload.variety_name,
+            draft.result_data,
+        )
     except DriveNotConfiguredError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RequiredFileMissingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"파일 자동생성 중 오류가 발생했습니다: {exc}",
+            detail=f"완성 패키지 생성 중 오류가 발생했습니다: {exc}",
         ) from exc
 
     return StreamingResponse(
         io.BytesIO(zip_bytes),
         media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="Tulipa_Sunlover.zip"'},
+        headers={
+            "Content-Disposition": 'attachment; filename="Tulipa_Sunlover_complete.zip"',
+        },
     )

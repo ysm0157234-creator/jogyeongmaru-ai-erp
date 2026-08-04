@@ -38,7 +38,7 @@ export default function AIReportPage() {
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.href = url; link.download = "Tulipa_Sunlover.zip";
+      link.href = url; link.download = "Tulipa_Sunlover_complete.zip";
       document.body.appendChild(link); link.click(); link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       setFileStatus("완료: ZIP 다운로드를 시작했습니다.");
