@@ -44,13 +44,11 @@ class GoogleSearchService:
         settings = get_settings()
         self.api_key = settings.google_search_api_key.strip()
         self.engine_id = settings.google_search_engine_id.strip()
-
-        missing = []
+        missing: list[str] = []
         if not self.api_key:
             missing.append("GOOGLE_SEARCH_API_KEY")
         if not self.engine_id:
             missing.append("GOOGLE_SEARCH_ENGINE_ID")
-
         if missing:
             raise GoogleSearchNotConfiguredError(
                 "Render 환경변수가 누락되었습니다: " + ", ".join(missing)
@@ -66,55 +64,34 @@ class GoogleSearchService:
         request = Request(
             f"{self.BASE_URL}?{urlencode(query)}",
             headers={
-                "User-Agent": "Jogyeongmaru-AI-ERP/7.0",
+                "User-Agent": "Jogyeongmaru-AI-ERP/8.0",
                 "Accept": "application/json",
             },
         )
-
         try:
-            with urlopen(request, timeout=30) as response:
+            with urlopen(request, timeout=35) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
             raise GoogleSearchError(
-                f"Google 검색 API 오류({exc.code}): {body[:500]}"
+                f"Google 검색 API 오류({exc.code}): {body[:700]}"
             ) from exc
         except (URLError, TimeoutError) as exc:
-            raise GoogleSearchError(
-                f"Google 검색 API 연결 실패: {exc}"
-            ) from exc
+            raise GoogleSearchError(f"Google 검색 API 연결 실패: {exc}") from exc
         except Exception as exc:
-            raise GoogleSearchError(
-                f"Google 검색 응답 처리 실패: {exc}"
-            ) from exc
-
-        if "error" in payload:
-            raise GoogleSearchError(
-                f"Google 검색 API 오류: {payload['error']}"
-            )
-
+            raise GoogleSearchError(f"Google 검색 응답 처리 실패: {exc}") from exc
+        if payload.get("error"):
+            raise GoogleSearchError(f"Google 검색 API 오류: {payload['error']}")
         return payload
 
-    def search_web(
-        self,
-        query: str,
-        *,
-        num: int = 8,
-    ) -> list[WebSearchResult]:
-        payload = self._request(
-            {
-                "q": query,
-                "num": max(1, min(num, 10)),
-                "lr": "lang_en|lang_ko",
-            }
-        )
-
-        results: list[WebSearchResult] = []
+    def search_web(self, query: str, *, num: int = 10) -> list[WebSearchResult]:
+        payload = self._request({"q": query, "num": max(1, min(num, 10))})
+        output: list[WebSearchResult] = []
         for item in payload.get("items", []):
             link = str(item.get("link", "")).strip()
             if not link:
                 continue
-            results.append(
+            output.append(
                 WebSearchResult(
                     title=str(item.get("title", "")).strip(),
                     link=link,
@@ -122,14 +99,9 @@ class GoogleSearchService:
                     display_link=str(item.get("displayLink", "")).strip(),
                 )
             )
-        return results
+        return output
 
-    def search_images(
-        self,
-        query: str,
-        *,
-        num: int = 6,
-    ) -> list[ImageSearchResult]:
+    def search_images(self, query: str, *, num: int = 10) -> list[ImageSearchResult]:
         payload = self._request(
             {
                 "q": query,
@@ -139,26 +111,22 @@ class GoogleSearchService:
                 "num": max(1, min(num, 10)),
             }
         )
-
-        results: list[ImageSearchResult] = []
+        output: list[ImageSearchResult] = []
         for item in payload.get("items", []):
             image = item.get("image") or {}
-            image_url = str(item.get("link", "")).strip()
-            thumbnail_url = str(image.get("thumbnailLink", "")).strip()
-            context_url = str(image.get("contextLink", "")).strip()
-
-            if not image_url and not thumbnail_url:
+            original = str(item.get("link", "")).strip()
+            thumbnail = str(image.get("thumbnailLink", "")).strip()
+            if not original and not thumbnail:
                 continue
-
-            results.append(
+            output.append(
                 ImageSearchResult(
                     title=str(item.get("title", "")).strip(),
-                    image_url=image_url,
-                    thumbnail_url=thumbnail_url,
-                    context_url=context_url,
+                    image_url=original,
+                    thumbnail_url=thumbnail,
+                    context_url=str(image.get("contextLink", "")).strip(),
                     display_link=str(item.get("displayLink", "")).strip(),
                     width=image.get("width"),
                     height=image.get("height"),
                 )
             )
-        return results
+        return output

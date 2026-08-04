@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, FileSearch, Image as ImageIcon, LoaderCirc
 import { api, apiDownload } from "../services/api";
 
 export default function AIReportPage() {
-  const [varietyName, setVarietyName] = useState("Tulipa spp. Sunlover");
+  const [varietyName, setVarietyName] = useState("");
   const [agency, setAgency] = useState("국립종자원");
   const [draft, setDraft] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -38,7 +38,7 @@ export default function AIReportPage() {
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.href = url; link.download = "Tulipa_Sunlover_complete.zip";
+      link.href = url; link.download = `${varietyName.replace(/[^a-zA-Z0-9가-힣_-]+/g, "_") || "plant"}_complete.zip`;
       document.body.appendChild(link); link.click(); link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       setFileStatus("완료: ZIP 다운로드를 시작했습니다.");
@@ -53,7 +53,7 @@ export default function AIReportPage() {
       <div><strong>Google Drive 연결</strong><span>{driveStatus?.message || "확인 중..."}</span></div>
     </section>
     <form className="panel ai-search-form" onSubmit={generate}>
-      <label className="field"><span>신고할 품종명</span><div className="search-box large"><Search size={20}/><input value={varietyName} onChange={e=>setVarietyName(e.target.value)} /></div></label>
+      <label className="field"><span>신고할 품종명</span><div className="search-box large"><Search size={20}/><input value={varietyName} onChange={e=>setVarietyName(e.target.value)} placeholder="예: Hydrangea macrophylla Endless Summer" required /></div></label>
       <label className="field"><span>신고 기관</span><select value={agency} onChange={e=>setAgency(e.target.value)}><option>국립종자원</option><option>산림청</option><option>둘 다</option></select></label>
       <button className="primary-button ai-generate-button" disabled={loading}>{loading?<LoaderCircle className="spin" size={19}/>:<Sparkles size={19}/>} AI 신고자료 생성</button>
     </form>
@@ -75,8 +75,8 @@ function AIResult({ draft, setDraft, setError }) {
   const [form, setForm] = useState(() => structuredClone(draft.result_data));
   useEffect(()=>setForm(structuredClone(draft.result_data)),[draft]);
 
-  const overall = useMemo(()=>form.image_candidates.filter(i=>i.role==="overall"),[form.image_candidates]);
-  const closeup = useMemo(()=>form.image_candidates.filter(i=>i.role==="closeup"),[form.image_candidates]);
+  const overall = useMemo(()=>(form.image_candidates || []).filter(i=>i.role==="overall"),[form.image_candidates]);
+  const closeup = useMemo(()=>(form.image_candidates || []).filter(i=>i.role==="closeup"),[form.image_candidates]);
 
   function change(path,value){setForm(current=>{const next=structuredClone(current);let t=next;for(let i=0;i<path.length-1;i++)t=t[path[i]];t[path.at(-1)]=value;return next;});}
   function select(role,id){setForm(c=>({...c,selected_images:{...(c.selected_images||{}),[role]:id}}));}
