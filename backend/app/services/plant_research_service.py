@@ -21,7 +21,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v11.0-search-first"
+BUILD_VERSION = "v12.0-serper"
 
 
 def _norm(value: Any) -> str:
@@ -319,7 +319,7 @@ def _search_fallback_draft(
     evidence = " ".join(snippets)
     if evidence:
         characteristics = (
-            f"{name}에 관한 Google 검색자료에서는 다음 내용이 "
+            f"{name}에 관한 Serper 검색자료에서는 다음 내용이 "
             f"확인됩니다. {evidence} "
             "다만 이 내용은 검색결과 요약을 정리한 것으로, "
             "최종 신고 전 공급사 또는 공식 품종자료와 대조해야 합니다."
@@ -356,7 +356,7 @@ def _search_fallback_draft(
         ),
         "research_notes": [
             reason,
-            "Gemini 대신 Google 검색결과 기반 안전 초안을 생성했습니다.",
+            "Gemini 대신 Serper 검색결과 기반 안전 초안을 생성했습니다.",
             "확인되지 않은 분류·규격은 임의로 작성하지 않았습니다.",
         ],
     }
@@ -447,7 +447,7 @@ def research_variety(
 
     if not sources:
         raise PlantResearchError(
-            f"Google 검색에서 '{name}'와 일치하는 "
+            f"Serper 검색에서 '{name}'와 일치하는 "
             "품종 자료를 찾지 못했습니다."
         )
 
@@ -476,7 +476,7 @@ def research_variety(
 입력 식물 또는 품종명: {name}
 신고 기관: {agency}
 
-아래 Google Custom Search 결과만 근거로 사용하여 신고용 초안을 작성하라.
+아래 Serper Google Search 결과만 근거로 사용하여 신고용 초안을 작성하라.
 검색 결과에 없는 사실을 추측하거나 만들어내지 마라.
 입력 품종과 다른 식물의 내용을 섞지 마라.
 확인되지 않은 항목은 반드시 '공급사 또는 권리자 자료 확인 필요'라고 적어라.
@@ -594,7 +594,7 @@ def research_variety(
         {
             "title": item.title,
             "url": item.link,
-            "type": "Google Custom Search",
+            "type": "Serper Google Search",
             "status": "검색 근거",
             "snippet": item.snippet,
             "domain": item.display_link,
@@ -769,7 +769,7 @@ def research_variety(
             ),
         ],
         "research_provider": {
-            "web": "Google Custom Search",
+            "web": "Serper Google Search",
             "images": (
                 "Google Image Search + "
                 "Wikimedia Commons"
@@ -777,7 +777,7 @@ def research_variety(
             "generation": (
                 f"Gemini {gemini_model}"
                 if gemini_model
-                else "Google 검색결과 기반 안전 초안"
+                else "Serper 검색결과 기반 안전 초안"
             ),
             "gemini_fallback_reason": fallback_reason,
         },

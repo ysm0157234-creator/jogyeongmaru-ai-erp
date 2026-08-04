@@ -4,14 +4,16 @@ import json
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from app.core.config import get_settings
 
 
 class GoogleSearchNotConfiguredError(RuntimeError):
-    pass
+    """
+    기존 코드와의 호환을 위해 클래스명은 유지하지만,
+    실제 검색 공급자는 v12부터 Serper API이다.
+    """
 
 
 class GoogleSearchError(RuntimeError):
@@ -38,95 +40,232 @@ class ImageSearchResult:
 
 
 class GoogleSearchService:
-    BASE_URL = "https://www.googleapis.com/customsearch/v1"
+    """
+    v12 검색 서비스.
+
+    기존 plant_research_service의 import와 호출부를 바꾸지 않기 위해
+    클래스 이름은 GoogleSearchService로 유지한다.
+    실제 요청은 Serper의 웹 검색과 이미지 검색 API로 보낸다.
+    """
+
+    SEARCH_URL = "https://google.serper.dev/search"
+    IMAGES_URL = "https://google.serper.dev/images"
 
     def __init__(self) -> None:
         settings = get_settings()
-        self.api_key = settings.google_search_api_key.strip()
-        self.engine_id = settings.google_search_engine_id.strip()
-        missing: list[str] = []
+        self.api_key = settings.serper_api_key.strip()
+
         if not self.api_key:
-            missing.append("GOOGLE_SEARCH_API_KEY")
-        if not self.engine_id:
-            missing.append("GOOGLE_SEARCH_ENGINE_ID")
-        if missing:
             raise GoogleSearchNotConfiguredError(
-                "Render 환경변수가 누락되었습니다: " + ", ".join(missing)
+                "Render 환경변수 SERPER_API_KEY가 누락되었습니다."
             )
 
-    def _request(self, params: dict[str, Any]) -> dict[str, Any]:
-        query = {
-            "key": self.api_key,
-            "cx": self.engine_id,
-            "safe": "active",
-            **params,
+    def _request(
+        self,
+        url: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        body = {
+            "gl": "kr",
+            "hl": "ko",
+            **payload,
         }
+
         request = Request(
-            f"{self.BASE_URL}?{urlencode(query)}",
+            url,
+            data=json.dumps(
+                body,
+                ensure_ascii=False,
+            ).encode("utf-8"),
             headers={
-                "User-Agent": "Jogyeongmaru-AI-ERP/8.0",
+                "X-API-KEY": self.api_key,
+                "Content-Type": "application/json",
                 "Accept": "application/json",
+                "User-Agent": "Jogyeongmaru-AI-ERP/12.0",
             },
+            method="POST",
         )
+
         try:
-            with urlopen(request, timeout=35) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="replace")
-            raise GoogleSearchError(
-                f"Google 검색 API 오류({exc.code}): {body[:700]}"
-            ) from exc
-        except (URLError, TimeoutError) as exc:
-            raise GoogleSearchError(f"Google 검색 API 연결 실패: {exc}") from exc
-        except Exception as exc:
-            raise GoogleSearchError(f"Google 검색 응답 처리 실패: {exc}") from exc
-        if payload.get("error"):
-            raise GoogleSearchError(f"Google 검색 API 오류: {payload['error']}")
-        return payload
-
-    def search_web(self, query: str, *, num: int = 10) -> list[WebSearchResult]:
-        payload = self._request({"q": query, "num": max(1, min(num, 10))})
-        output: list[WebSearchResult] = []
-        for item in payload.get("items", []):
-            link = str(item.get("link", "")).strip()
-            if not link:
-                continue
-            output.append(
-                WebSearchResult(
-                    title=str(item.get("title", "")).strip(),
-                    link=link,
-                    snippet=str(item.get("snippet", "")).strip(),
-                    display_link=str(item.get("displayLink", "")).strip(),
+            with urlopen(
+                request,
+                timeout=40,
+            ) as response:
+                result = json.loads(
+                    response.read().decode("utf-8")
                 )
-            )
-        return output
 
-    def search_images(self, query: str, *, num: int = 10) -> list[ImageSearchResult]:
-        payload = self._request(
+        except HTTPError as exc:
+            detail = exc.read().decode(
+                "utf-8",
+                errors="replace",
+            )
+
+            if exc.code == 401:
+                message = (
+                    "Serper API 키가 올바르지 않습니다. "
+                    "Render의 SERPER_API_KEY를 확인하세요."
+                )
+            elif exc.code == 403:
+                message = (
+                    "Serper API 접근이 거부되었습니다. "
+                    "계정 상태와 API 키 권한을 확인하세요."
+                )
+            elif exc.code == 429:
+                message = (
+                    "Serper 검색 크레딧 또는 요청 한도를 초과했습니다."
+                )
+            else:
+                message = (
+                    f"Serper API 오류({exc.code}): "
+                    f"{detail[:800]}"
+                )
+
+            raise GoogleSearchError(message) from exc
+
+        except (URLError, TimeoutError) as exc:
+            raise GoogleSearchError(
+                f"Serper API 연결 실패: {exc}"
+            ) from exc
+
+        except json.JSONDecodeError as exc:
+            raise GoogleSearchError(
+                "Serper API 응답을 JSON으로 해석하지 못했습니다."
+            ) from exc
+
+        except Exception as exc:
+            raise GoogleSearchError(
+                f"Serper 검색 응답 처리 실패: {exc}"
+            ) from exc
+
+        if not isinstance(result, dict):
+            raise GoogleSearchError(
+                "Serper API 응답 형식이 올바르지 않습니다."
+            )
+
+        return result
+
+    def search_web(
+        self,
+        query: str,
+        *,
+        num: int = 10,
+    ) -> list[WebSearchResult]:
+        result = self._request(
+            self.SEARCH_URL,
             {
                 "q": query,
-                "searchType": "image",
-                "imgType": "photo",
-                "imgSize": "large",
-                "num": max(1, min(num, 10)),
-            }
+                "num": max(
+                    1,
+                    min(num, 20),
+                ),
+            },
         )
-        output: list[ImageSearchResult] = []
-        for item in payload.get("items", []):
-            image = item.get("image") or {}
-            original = str(item.get("link", "")).strip()
-            thumbnail = str(image.get("thumbnailLink", "")).strip()
-            if not original and not thumbnail:
+
+        output: list[WebSearchResult] = []
+
+        # 일반 검색 결과
+        for item in result.get("organic", []) or []:
+            link = str(
+                item.get("link", "")
+            ).strip()
+
+            if not link:
                 continue
+
             output.append(
-                ImageSearchResult(
-                    title=str(item.get("title", "")).strip(),
-                    image_url=original,
-                    thumbnail_url=thumbnail,
-                    context_url=str(image.get("contextLink", "")).strip(),
-                    display_link=str(item.get("displayLink", "")).strip(),
-                    width=image.get("width"),
-                    height=image.get("height"),
+                WebSearchResult(
+                    title=str(
+                        item.get("title", "")
+                    ).strip(),
+                    link=link,
+                    snippet=str(
+                        item.get("snippet", "")
+                    ).strip(),
+                    display_link=str(
+                        item.get("domain")
+                        or item.get("source")
+                        or ""
+                    ).strip(),
                 )
             )
-        return output
+
+        # Knowledge Graph도 검색 근거로 사용할 수 있도록 추가
+        knowledge = result.get("knowledgeGraph") or {}
+        knowledge_link = str(
+            knowledge.get("website")
+            or knowledge.get("descriptionLink")
+            or ""
+        ).strip()
+
+        if knowledge_link:
+            output.insert(
+                0,
+                WebSearchResult(
+                    title=str(
+                        knowledge.get("title", "")
+                    ).strip(),
+                    link=knowledge_link,
+                    snippet=str(
+                        knowledge.get("description", "")
+                    ).strip(),
+                    display_link=str(
+                        knowledge.get("descriptionSource", "")
+                    ).strip(),
+                ),
+            )
+
+        return output[: max(1, min(num, 20))]
+
+    def search_images(
+        self,
+        query: str,
+        *,
+        num: int = 10,
+    ) -> list[ImageSearchResult]:
+        result = self._request(
+            self.IMAGES_URL,
+            {
+                "q": query,
+                "num": max(
+                    1,
+                    min(num, 20),
+                ),
+            },
+        )
+
+        output: list[ImageSearchResult] = []
+
+        for item in result.get("images", []) or []:
+            original = str(
+                item.get("imageUrl", "")
+            ).strip()
+
+            thumbnail = str(
+                item.get("thumbnailUrl", "")
+            ).strip()
+
+            if not original and not thumbnail:
+                continue
+
+            output.append(
+                ImageSearchResult(
+                    title=str(
+                        item.get("title", "")
+                    ).strip(),
+                    image_url=original,
+                    thumbnail_url=thumbnail,
+                    context_url=str(
+                        item.get("link", "")
+                    ).strip(),
+                    display_link=str(
+                        item.get("domain")
+                        or item.get("source")
+                        or ""
+                    ).strip(),
+                    width=item.get("imageWidth"),
+                    height=item.get("imageHeight"),
+                )
+            )
+
+        return output[: max(1, min(num, 20))]

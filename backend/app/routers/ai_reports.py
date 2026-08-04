@@ -21,7 +21,7 @@ from .deps import get_current_user
 
 router = APIRouter(prefix="/api/ai-reports", tags=["ai-reports"])
 
-BUILD_VERSION = "v11.0-search-first"
+BUILD_VERSION = "v12.0-serper"
 
 
 def get_owned_draft(db: Session, draft_id: int, user: User) -> AIDraft:
@@ -53,16 +53,14 @@ def drive_status(_: User = Depends(get_current_user)):
         "GOOGLE_SERVICE_ACCOUNT_JSON": bool(settings.google_service_account_json.strip()),
         "SHIPMENT_OVERVIEW_FILE_ID": bool(settings.shipment_overview_file_id.strip()),
         "IMPORT_2025_FOLDER_ID": bool(settings.import_2025_folder_id.strip()),
-        "GOOGLE_SEARCH_API_KEY": bool(settings.google_search_api_key.strip()),
-        "GOOGLE_SEARCH_ENGINE_ID": bool(settings.google_search_engine_id.strip()),
+        "SERPER_API_KEY": bool(settings.serper_api_key.strip()),
         "GEMINI_API_KEY": bool(settings.gemini_api_key.strip()),
     }
     required_keys = (
         "GOOGLE_SERVICE_ACCOUNT_JSON",
         "SHIPMENT_OVERVIEW_FILE_ID",
         "IMPORT_2025_FOLDER_ID",
-        "GOOGLE_SEARCH_API_KEY",
-        "GOOGLE_SEARCH_ENGINE_ID",
+        "SERPER_API_KEY",
     )
     missing = [
         key
@@ -76,8 +74,7 @@ def drive_status(_: User = Depends(get_current_user)):
                 "GOOGLE_SERVICE_ACCOUNT_JSON",
                 "SHIPMENT_OVERVIEW_FILE_ID",
                 "IMPORT_2025_FOLDER_ID",
-                "GOOGLE_SEARCH_API_KEY",
-                "GOOGLE_SEARCH_ENGINE_ID",
+                "SERPER_API_KEY",
             )
         ),
         "drive_configured": all(
@@ -91,8 +88,7 @@ def drive_status(_: User = Depends(get_current_user)):
         "research_configured": all(
             checks[key]
             for key in (
-                "GOOGLE_SEARCH_API_KEY",
-                "GOOGLE_SEARCH_ENGINE_ID",
+                "SERPER_API_KEY",
             )
         ),
         "gemini_configured": checks["GEMINI_API_KEY"],

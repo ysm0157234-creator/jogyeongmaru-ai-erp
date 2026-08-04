@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     shipment_overview_file_id: str = ""
     import_2025_folder_id: str = ""
 
+    # v12 검색 API
+    serper_api_key: str = ""
+
+    # 이전 버전 호환용. v12에서는 사용하지 않음.
     google_search_api_key: str = ""
     google_search_engine_id: str = ""
     gemini_api_key: str = ""
