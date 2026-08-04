@@ -21,7 +21,7 @@ from .deps import get_current_user
 
 router = APIRouter(prefix="/api/ai-reports", tags=["ai-reports"])
 
-BUILD_VERSION = "v10.1-valid-model-name"
+BUILD_VERSION = "v11.0-search-first"
 
 
 def get_owned_draft(db: Session, draft_id: int, user: User) -> AIDraft:
@@ -57,15 +57,52 @@ def drive_status(_: User = Depends(get_current_user)):
         "GOOGLE_SEARCH_ENGINE_ID": bool(settings.google_search_engine_id.strip()),
         "GEMINI_API_KEY": bool(settings.gemini_api_key.strip()),
     }
-    missing = [key for key, ok in checks.items() if not ok]
+    required_keys = (
+        "GOOGLE_SERVICE_ACCOUNT_JSON",
+        "SHIPMENT_OVERVIEW_FILE_ID",
+        "IMPORT_2025_FOLDER_ID",
+        "GOOGLE_SEARCH_API_KEY",
+        "GOOGLE_SEARCH_ENGINE_ID",
+    )
+    missing = [
+        key
+        for key in required_keys
+        if not checks[key]
+    ]
     return {
-        "configured": not missing,
-        "drive_configured": all(checks[key] for key in ("GOOGLE_SERVICE_ACCOUNT_JSON", "SHIPMENT_OVERVIEW_FILE_ID", "IMPORT_2025_FOLDER_ID")),
-        "research_configured": all(checks[key] for key in ("GOOGLE_SEARCH_API_KEY", "GOOGLE_SEARCH_ENGINE_ID", "GEMINI_API_KEY")),
+        "configured": all(
+            checks[key]
+            for key in (
+                "GOOGLE_SERVICE_ACCOUNT_JSON",
+                "SHIPMENT_OVERVIEW_FILE_ID",
+                "IMPORT_2025_FOLDER_ID",
+                "GOOGLE_SEARCH_API_KEY",
+                "GOOGLE_SEARCH_ENGINE_ID",
+            )
+        ),
+        "drive_configured": all(
+            checks[key]
+            for key in (
+                "GOOGLE_SERVICE_ACCOUNT_JSON",
+                "SHIPMENT_OVERVIEW_FILE_ID",
+                "IMPORT_2025_FOLDER_ID",
+            )
+        ),
+        "research_configured": all(
+            checks[key]
+            for key in (
+                "GOOGLE_SEARCH_API_KEY",
+                "GOOGLE_SEARCH_ENGINE_ID",
+            )
+        ),
+        "gemini_configured": checks["GEMINI_API_KEY"],
         "missing_environment_variables": missing,
         "build_version": BUILD_VERSION,
         "message": (
-            f"Google Drive·검색·Gemini 연결 준비 완료 ({BUILD_VERSION})"
+            (
+                f"Google Drive·검색 연결 완료 / "
+                f"Gemini는 선택 사용 ({BUILD_VERSION})"
+            )
             if not missing
             else "누락된 Render 환경변수: " + ", ".join(missing)
         ),
