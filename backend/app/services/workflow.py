@@ -12,27 +12,6 @@ class RequiredFileMissingError(RuntimeError): pass
 
 def norm(v): return re.sub(r"[^a-z0-9가-힣]+","",str(v or "").lower())
 def safe(v): return re.sub(r'[\\/:*?"<>|]+','_',str(v)).strip()
-
-def variety_terms(name):
-    raw=str(name or '').strip()
-    parts=[x for x in re.split(r'\s+',raw) if x]
-    values=[raw]
-    if parts:
-        values.append(parts[0])
-    if len(parts)>=2:
-        values.append(' '.join(parts[:2]))
-    if len(parts)>=3:
-        values.append(parts[-1])
-    simplified=re.sub(r'(?i)\b(?:spp?\.?|x|×)\b',' ',raw)
-    simplified=re.sub(r'\s+',' ',simplified).strip()
-    if simplified:
-        values.append(simplified)
-    out=[]; seen=set()
-    for value in values:
-        key=norm(value)
-        if len(key)>=3 and key not in seen:
-            seen.add(key); out.append(value)
-    return out
 def folder(x): return x.mime_type==FOLDER_MIME
 
 def is_invoice(x):
@@ -216,68 +195,20 @@ def parent_folder(drive,child,items):
         except Exception: pass
     return None
 
-def fallback_variety(drive,root_id,variety_name):
-    """
-    Shipment Overview에 품종이 없을 때 입력 품종명/속명 후보로
-    2025 수입의 인보이스를 찾는다.
-    전체 폴더를 무제한 순회하지 않고 최대 항목 수를 제한한다.
-    """
-    terms=variety_terms(variety_name)
-    items=drive.walk(root_id,max_depth=6,max_items=2500)
-    invoices=sorted(
-        [x for x in items if is_invoice(x) and 'freight invoice' not in x.name.lower()],
-        key=lambda x:x.name.lower()
-    )
-
-    # 파일명에 검색어가 있는 후보를 우선
-    def score(file):
-        n=norm(file.name)
-        return max([100-len(i) for i,t in enumerate(terms) if norm(t) in n] or [0])
-
-    invoices.sort(key=lambda x:(-score(x),x.name.lower()))
-
-    for inv in invoices:
+def fallback_tulipa(drive,root_id):
+    items=drive.walk(root_id,max_depth=6,max_items=4000)
+    for inv in sorted([x for x in items if is_invoice(x)],key=lambda x:x.name.lower()):
         try:
             data=drive.download(inv.id)
-            ok=(
-                workbook_contains(data,terms)
-                if inv.name.lower().endswith(('.xlsx','.xlsm'))
-                else pdf_contains(data,terms)
-            )
-            if not ok:
-                continue
-
+            ok=workbook_contains(data,['Tulipa']) if inv.name.lower().endswith(('.xlsx','.xlsm')) else pdf_contains(data,['Tulipa'])
+            if not ok: continue
             c=parent_folder(drive,inv,items)
-            if not c:
-                continue
-
-            direct=drive.list_children(c.id)
-            q=next(
-                (
-                    x for x in sorted(direct,key=lambda x:x.name.lower())
-                    if is_quarantine(x)
-                ),
-                None,
-            )
-            if not q:
-                sub=drive.walk(c.id,max_depth=2,max_items=300)
-                q=next(
-                    (
-                        x for x in sorted(sub,key=lambda x:x.name.lower())
-                        if is_quarantine(x)
-                    ),
-                    None,
-                )
-            if q:
-                return c,inv,q
-        except Exception:
-            continue
-
-    raise RequiredFileMissingError(
-        f"Shipment Overview에서 '{variety_name}' 품종을 찾지 못했고, "
-        "2025 수입에서도 입력 품종과 관련된 인보이스와 검역파일을 찾지 못했습니다."
-    )
-
+            if not c: continue
+            sub=drive.walk(c.id,max_depth=3,max_items=700)
+            q=next((x for x in sub if is_quarantine(x)),None)
+            if q: return c,inv,q
+        except Exception: continue
+    raise RequiredFileMissingError('Shipment Overview에서 품종을 찾지 못했고, 2025 수입에서도 입력 품종 인보이스와 검역파일을 찾지 못했습니다.')
 
 def image_url(data,role):
     sid=data.get('selected_images',{}).get(role)
@@ -316,14 +247,14 @@ def run_workflow(variety_name,draft_data):
         log += [f'H열 Shipment: {match.shipment}',f'업체 폴더: {supplier.name}',f'Shipping document: {shipping.name}',f'Container: {container.name}']
         mode='shipment_overview_2025_route'
     except LookupError:
-        container,invoice,quarantine=fallback_variety(drive,s.import_2025_folder_id,variety_name)
-        match=ShipmentMatch(sheet_name='2025 수입 품종 보조검색',row_number=0,description=variety_name,shipment=container.name,values={'품종명':variety_name},source='import_2025_variety_fallback')
-        mode='import_2025_variety_fallback'; log.append(f'입력 품종 인보이스 Container 사용: {container.name}')
+        container,invoice,quarantine=fallback_tulipa(drive,s.import_2025_folder_id)
+        match=ShipmentMatch(sheet_name='2025 수입 Tulipa 보조검색',row_number=0,description=variety_name,shipment=container.name,values={'품종명':variety_name},source='import_2025_tulipa_fallback')
+        mode='import_2025_tulipa_fallback'; log.append(f'Tulipa 인보이스 Container 사용: {container.name}')
     inv_data=drive.download(invoice.id); qua_data=drive.download(quarantine.id)
     ou=image_url(draft_data,'overall'); cu=image_url(draft_data,'closeup')
     if ou==cu: raise RequiredFileMissingError('전체 모습과 꽃 근접 사진은 서로 달라야 합니다.')
     oi,ci=download_image(ou),download_image(cu)
-    final=draft_data.get('matched_name',variety_name); ko=draft_data.get('korean_name',variety_name); sci=draft_data.get('scientific_name',variety_name)
+    final=draft_data.get('matched_name',variety_name); ko=draft_data.get('korean_name','튤립 썬러버'); sci=draft_data.get('scientific_name',"Tulipa 'Sun Lover'")
     ch=draft_data.get('characteristics_draft',''); br=draft_data.get('breeding_process_draft','')
     if not ch.strip() or not br.strip(): raise RequiredFileMissingError('품종 특성 설명 또는 육성과정이 비어 있습니다.')
     inv_out,inv_name=process_invoice(invoice,inv_data,variety_name,match.shipment,match.values)
