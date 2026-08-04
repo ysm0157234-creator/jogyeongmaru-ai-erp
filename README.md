@@ -1,39 +1,41 @@
-# 조경마루 AI ERP v4.0 완성 패키지 생성판
+# 조경마루 AI ERP v5.0
 
-이번 버전은 필수 파일이 빠진 불완전 ZIP을 생성하지 않습니다.
+Google Drive 설정 오류까지 반영한 전체 통합본입니다.
 
-## 생성되는 파일
+## Render API 환경변수
 
-1. 생산수입판매신고서 검토안 DOCX
-2. 품종특성설명 DOCX
-3. 품종육성과정 DOCX
-4. 시료제출확약서 DOCX
-5. Google Drive에서 찾은 검역합격증 원본
-6. 신고용 인보이스
-7. 품종 전체 모습 사진
-8. 꽃 근접 사진
-9. 처리요약 PDF
-10. manifest.json
+아래 세 항목을 모두 등록해야 합니다.
 
-## 검색 흐름
+```text
+GOOGLE_SERVICE_ACCOUNT_JSON
+SHIPMENT_OVERVIEW_FILE_ID
+IMPORT_2026_FOLDER_ID
+```
 
-- Shipment Overview에서 품종을 찾으면 같은 행 H열 Shipment 값을 읽습니다.
-- 2026수입에서 동일·유사 이름의 Shipment 폴더를 찾습니다.
-- 해당 폴더 안의 인보이스와 검역합격증을 사용합니다.
-- Shipment Overview에 품종이 없으면 2026수입에서 Tulipa가 포함된 인보이스의 폴더를 사용합니다.
+`GOOGLE_SERVICE_ACCOUNT_JSON`에는 내려받은 서비스계정 JSON 파일 내용을 통째로 붙여 넣습니다.
 
-## 실패 정책
+## 적용 순서
 
-다음 중 하나라도 없으면 ZIP을 생성하지 않고 구체적인 오류를 반환합니다.
+1. 기존 Merge가 진행 중이면 GitHub Desktop에서 `Abort Merge`
+2. 저장소를 새 폴더에 Clone
+3. 이 압축파일 내부 내용을 새 Clone 폴더에 덮어쓰기
+4. 새 Clone 폴더의 `.git`은 그대로 유지
+5. Commit: `Replace project with v5 drive-fixed build`
+6. Push origin
+7. Render API와 WEB 배포 완료 확인
+8. 브라우저 강력 새로고침
 
-- 인보이스
-- 검역합격증
-- 전체 모습 사진
-- 꽃 근접 사진
-- 품종특성 설명
-- 품종육성과정
+## 정상 생성 파일
 
-## 적용
-
-새로 Clone한 깨끗한 저장소 폴더에 이 ZIP의 내용을 덮어쓴 뒤 Commit/Push 하세요.
-기존 충돌 상태 폴더에는 덮어쓰지 마세요.
+```text
+01_생산수입판매신고서_검토안.docx
+02_품종특성설명.docx
+03_품종육성과정.docx
+04_시료제출확약서.docx
+05_검역합격증
+06_신고용_invoice
+07_품종전체사진.jpg
+08_꽃근접사진.jpg
+09_처리요약.pdf
+manifest.json
+```

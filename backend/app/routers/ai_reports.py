@@ -227,15 +227,33 @@ def list_ai_drafts(
 @router.get("/drive/status")
 def drive_status(_: User = Depends(get_current_user)):
     from app.core.config import get_settings
+
     settings = get_settings()
+
+    has_json = bool(settings.google_service_account_json.strip())
+    has_shipment = bool(settings.shipment_overview_file_id.strip())
+    has_import_folder = bool(settings.import_2026_folder_id.strip())
+
+    configured = has_json and has_shipment and has_import_folder
+
+    missing = []
+    if not has_json:
+        missing.append("GOOGLE_SERVICE_ACCOUNT_JSON")
+    if not has_shipment:
+        missing.append("SHIPMENT_OVERVIEW_FILE_ID")
+    if not has_import_folder:
+        missing.append("IMPORT_2026_FOLDER_ID")
+
     return {
-        "configured": bool(settings.google_service_account_json.strip()),
+        "configured": configured,
+        "google_service_account_json": has_json,
         "shipment_overview_file_id": settings.shipment_overview_file_id,
         "import_2026_folder_id": settings.import_2026_folder_id,
+        "missing_environment_variables": missing,
         "message": (
             "Google Drive 연결 준비 완료"
-            if settings.google_service_account_json.strip()
-            else "Render에 GOOGLE_SERVICE_ACCOUNT_JSON을 설정해야 합니다."
+            if configured
+            else "누락된 Render 환경변수: " + ", ".join(missing)
         ),
     }
 

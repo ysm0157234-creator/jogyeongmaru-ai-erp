@@ -38,9 +38,18 @@ class GoogleDriveService:
     def __init__(self):
         settings = get_settings()
         raw = settings.google_service_account_json.strip()
+
+        missing = []
         if not raw:
+            missing.append("GOOGLE_SERVICE_ACCOUNT_JSON")
+        if not settings.shipment_overview_file_id.strip():
+            missing.append("SHIPMENT_OVERVIEW_FILE_ID")
+        if not settings.import_2026_folder_id.strip():
+            missing.append("IMPORT_2026_FOLDER_ID")
+
+        if missing:
             raise DriveNotConfiguredError(
-                "GOOGLE_SERVICE_ACCOUNT_JSON이 설정되지 않았습니다."
+                "Render 환경변수가 누락되었습니다: " + ", ".join(missing)
             )
 
         try:
