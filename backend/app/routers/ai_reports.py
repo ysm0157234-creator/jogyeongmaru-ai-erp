@@ -232,7 +232,7 @@ def drive_status(_: User = Depends(get_current_user)):
 
     has_json = bool(settings.google_service_account_json.strip())
     has_shipment = bool(settings.shipment_overview_file_id.strip())
-    has_import_folder = bool(settings.import_2026_folder_id.strip())
+    has_import_folder = bool(settings.import_2025_folder_id.strip())
 
     configured = has_json and has_shipment and has_import_folder
 
@@ -242,13 +242,13 @@ def drive_status(_: User = Depends(get_current_user)):
     if not has_shipment:
         missing.append("SHIPMENT_OVERVIEW_FILE_ID")
     if not has_import_folder:
-        missing.append("IMPORT_2026_FOLDER_ID")
+        missing.append("IMPORT_2025_FOLDER_ID")
 
     return {
         "configured": configured,
         "google_service_account_json": has_json,
         "shipment_overview_file_id": settings.shipment_overview_file_id,
-        "import_2026_folder_id": settings.import_2026_folder_id,
+        "import_2025_folder_id": settings.import_2025_folder_id,
         "missing_environment_variables": missing,
         "message": (
             "Google Drive 연결 준비 완료"
