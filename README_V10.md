@@ -34,7 +34,7 @@ GEMINI_MODEL
 사이트의 연결 상태 또는 AI 초안에 다음 버전이 보여야 합니다.
 
 ```text
-v10.0-google-genai-auto-model
+v10.1-valid-model-name
 ```
 
 ## 커밋 문구
