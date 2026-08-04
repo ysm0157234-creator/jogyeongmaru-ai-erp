@@ -21,7 +21,7 @@ from .deps import get_current_user
 
 router = APIRouter(prefix="/api/ai-reports", tags=["ai-reports"])
 
-BUILD_VERSION = "v9.0-strict-dynamic-variety"
+BUILD_VERSION = "v10.0-google-genai-auto-model"
 
 
 def get_owned_draft(db: Session, draft_id: int, user: User) -> AIDraft:

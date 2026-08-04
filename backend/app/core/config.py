@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     google_search_api_key: str = ""
     google_search_engine_id: str = ""
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

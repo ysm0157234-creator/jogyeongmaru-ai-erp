@@ -17,7 +17,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v9.0-strict-dynamic-variety"
+BUILD_VERSION = "v10.0-google-genai-auto-model"
 
 
 def _norm(value: Any) -> str:
