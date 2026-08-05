@@ -1,395 +1,997 @@
 from __future__ import annotations
 
-import json
 import re
-from dataclasses import dataclass
 from typing import Any
 
-from google import genai
-from google.genai import errors, types
+from app.services.gemini_service import (
+    GeminiError,
+    GeminiNotConfiguredError,
+    GeminiQuotaError,
+    GeminiService,
+)
+from app.services.google_search_service import (
+    GoogleSearchError,
+    GoogleSearchService,
+    ImageSearchResult,
+    WebSearchResult,
+)
+from app.services.wikimedia_service import search_commons_images
 
-from app.core.config import get_settings
 
-
-class GeminiNotConfiguredError(RuntimeError):
+class PlantResearchError(RuntimeError):
     pass
 
 
-class GeminiError(RuntimeError):
-    pass
+BUILD_VERSION = "v14.0-official-profile"
 
 
-class GeminiQuotaError(GeminiError):
-    pass
+def _norm(value: Any) -> str:
+    return re.sub(
+        r"[^a-z0-9가-힣]+",
+        "",
+        str(value or "").lower(),
+    )
 
 
-@dataclass
-class GeminiCallResult:
-    data: dict[str, Any]
-    model: str
+def _terms(name: str) -> list[str]:
+    words = [
+        re.sub(
+            r"[^A-Za-z0-9가-힣]+",
+            "",
+            word,
+        ).lower()
+        for word in re.split(
+            r"\s+",
+            str(name or "").strip(),
+        )
+    ]
+
+    return list(
+        dict.fromkeys(
+            word
+            for word in words
+            if len(word) >= 3
+            and word not in {
+                "spp",
+                "sp",
+                "var",
+                "cv",
+            }
+        )
+    )
 
 
-class GeminiService:
-    BUILD_VERSION = "v14.0-official-profile"
+def _score(
+    text: str,
+    terms: list[str],
+) -> int:
+    normalized = _norm(text)
 
-    FORBIDDEN_PHRASES = (
+    return sum(
+        14 if index == 0 else 9
+        for index, term in enumerate(terms)
+        if _norm(term)
+        and _norm(term) in normalized
+    )
+
+
+def _domain_priority(url: str) -> int:
+    lowered = str(url or "").lower()
+
+    priorities = (
+        ("kew.org", 100),
+        ("rhs.org.uk", 95),
+        ("missouribotanicalgarden.org", 92),
+        ("powo.science.kew.org", 100),
+        ("plants.ces.ncsu.edu", 88),
+        ("botanicgardens.org", 85),
+        ("monrovia.com", 78),
+        ("provenwinners.com", 76),
+        ("plantipp.eu", 74),
+        ("wikipedia.org", 60),
+    )
+
+    for domain, score in priorities:
+        if domain in lowered:
+            return score
+
+    return 40
+
+
+def _dedupe_web(
+    results: list[WebSearchResult],
+    variety_name: str,
+    limit: int = 24,
+) -> list[WebSearchResult]:
+    terms = _terms(variety_name)
+    scored: list[tuple[int, WebSearchResult]] = []
+    seen: set[str] = set()
+
+    for result in results:
+        if not result.link or result.link in seen:
+            continue
+
+        searchable = (
+            f"{result.title} "
+            f"{result.snippet} "
+            f"{result.link}"
+        )
+
+        relevance = _score(searchable, terms)
+
+        if relevance <= 0:
+            continue
+
+        total = relevance + _domain_priority(
+            result.link
+        )
+
+        seen.add(result.link)
+        scored.append((total, result))
+
+    scored.sort(
+        key=lambda item: (
+            -item[0],
+            item[1].title.lower(),
+        )
+    )
+
+    return [
+        result
+        for _, result in scored[:limit]
+    ]
+
+
+def _source_text(
+    sources: list[WebSearchResult],
+) -> str:
+    return "\n\n".join(
+        (
+            f"[{index}] {item.title}\n"
+            f"도메인: {item.display_link}\n"
+            f"요약: {item.snippet}\n"
+            f"URL: {item.link}"
+        )
+        for index, item in enumerate(
+            sources,
+            1,
+        )
+    )
+
+
+def _image_candidates(
+    images: list[ImageSearchResult],
+    role: str,
+    prefix: str,
+    variety_name: str,
+) -> list[dict[str, Any]]:
+    terms = _terms(variety_name)
+    output: list[dict[str, Any]] = []
+
+    for index, image in enumerate(
+        images[:14],
+        1,
+    ):
+        title = (
+            image.title
+            or (
+                f"{variety_name} 전체 모습"
+                if role == "overall"
+                else f"{variety_name} 근접 모습"
+            )
+        )
+
+        searchable = " ".join(
+            (
+                title,
+                image.context_url,
+                image.display_link,
+                image.image_url,
+            )
+        )
+
+        relevance = _score(
+            searchable,
+            terms,
+        )
+
+        if relevance <= 0:
+            continue
+
+        item = {
+            "id": f"{prefix}-serper-{index}",
+            "title": title,
+            "role": role,
+            "preview_url": (
+                image.thumbnail_url
+                or image.image_url
+            ),
+            "download_url": (
+                image.image_url
+                or image.thumbnail_url
+            ),
+            "backup_url": image.thumbnail_url,
+            "source_url": image.context_url,
+            "source": (
+                image.display_link
+                or "Serper 이미지 검색"
+            ),
+            "license": (
+                "제출 전 원본 페이지의 "
+                "이용 조건을 확인하세요."
+            ),
+            "recommended": False,
+            "research_query": variety_name,
+            "relevance_score": (
+                relevance
+                + _domain_priority(
+                    image.context_url
+                )
+            ),
+            "width": image.width,
+            "height": image.height,
+        }
+
+        output.append(item)
+
+    return sorted(
+        output,
+        key=lambda item: (
+            -int(
+                item.get(
+                    "relevance_score",
+                    0,
+                )
+            ),
+            item["title"].lower(),
+        ),
+    )
+
+
+def _commons_candidates(
+    variety_name: str,
+    role: str,
+    prefix: str,
+) -> list[dict[str, Any]]:
+    terms = _terms(variety_name)
+
+    queries = (
+        (
+            f'"{variety_name}" whole plant',
+            f'"{variety_name}" habit',
+        )
+        if role == "overall"
+        else (
+            f'"{variety_name}" close up',
+            f'"{variety_name}" flower',
+            f'"{variety_name}" foliage',
+            f'"{variety_name}" catkin',
+        )
+    )
+
+    output: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for query in queries:
+        for image in search_commons_images(
+            query,
+            limit=12,
+        ):
+            key = (
+                image.original_url
+                or image.thumbnail_url
+            )
+
+            if not key or key in seen:
+                continue
+
+            searchable = " ".join(
+                (
+                    image.title,
+                    image.description_url,
+                    image.original_url,
+                )
+            )
+
+            relevance = _score(
+                searchable,
+                terms,
+            )
+
+            if relevance <= 0:
+                continue
+
+            seen.add(key)
+
+            output.append(
+                {
+                    "id": (
+                        f"{prefix}-commons-"
+                        f"{len(output) + 1}"
+                    ),
+                    "title": (
+                        image.title
+                        or (
+                            f"{variety_name} 전체 모습"
+                            if role == "overall"
+                            else f"{variety_name} 근접 모습"
+                        )
+                    ),
+                    "role": role,
+                    "preview_url": (
+                        image.thumbnail_url
+                    ),
+                    "download_url": (
+                        image.original_url
+                    ),
+                    "backup_url": (
+                        image.thumbnail_url
+                    ),
+                    "source_url": (
+                        image.description_url
+                    ),
+                    "source": (
+                        "Wikimedia Commons"
+                    ),
+                    "license": (
+                        image.license_name
+                        or (
+                            "Commons 원본 페이지에서 "
+                            "라이선스 확인"
+                        )
+                    ),
+                    "recommended": False,
+                    "research_query": (
+                        variety_name
+                    ),
+                    "relevance_score": (
+                        relevance + 55
+                    ),
+                }
+            )
+
+    return sorted(
+        output,
+        key=lambda item: (
+            -int(
+                item.get(
+                    "relevance_score",
+                    0,
+                )
+            ),
+            item["title"].lower(),
+        ),
+    )
+
+
+def _dedupe_images(
+    items: list[dict[str, Any]],
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    output: list[dict[str, Any]] = []
+
+    for item in items:
+        key = str(
+            item.get("download_url")
+            or item.get("preview_url")
+            or ""
+        ).strip()
+
+        if not key or key in seen:
+            continue
+
+        seen.add(key)
+        output.append(item)
+
+        if len(output) >= limit:
+            break
+
+    if output:
+        output[0]["recommended"] = True
+
+    return output
+
+
+def _validate_identity(
+    variety_name: str,
+    generated: dict[str, Any],
+) -> None:
+    terms = _terms(variety_name)
+
+    identity = _norm(
+        " ".join(
+            str(generated.get(key, ""))
+            for key in (
+                "matched_name",
+                "scientific_name",
+                "genus",
+                "species",
+                "cultivar",
+            )
+        )
+    )
+
+    if terms and not any(
+        _norm(term) in identity
+        for term in terms
+    ):
+        raise PlantResearchError(
+            "조사 결과가 입력 식물명과 "
+            "일치하지 않습니다. "
+            f"입력: '{variety_name}', "
+            f"결과: "
+            f"'{generated.get('scientific_name')}'."
+        )
+
+    combined = " ".join(
+        str(generated.get(key, ""))
+        for key in (
+            "matched_name",
+            "korean_name",
+            "scientific_name",
+            "characteristics_draft",
+            "breeding_process_draft",
+        )
+    ).lower()
+
+    if "sunlover" not in _norm(
+        variety_name
+    ):
+        if any(
+            phrase in combined
+            for phrase in (
+                "sunlover",
+                "sun lover",
+                "튤립 썬러버",
+            )
+        ):
+            raise PlantResearchError(
+                "이전 Sunlover 시험 데이터가 "
+                "새 결과에 섞여 반환되었습니다."
+            )
+
+
+def _clean_text(
+    value: Any,
+) -> str:
+    text = re.sub(
+        r"\s+",
+        " ",
+        str(value or ""),
+    ).strip()
+
+    forbidden = (
         "확인 필요",
         "공식자료 확인",
         "공식 자료 확인",
         "증빙자료 확인",
         "증빙 자료 확인",
         "최종 기재",
-        "추후 기재",
-        "자료 확인 후",
         "대표 꽃색",
         "대표 개화기",
         "성숙 초장 범위",
-        "검색자료에 나타난 대표 꽃색",
-        "검색자료에 나타난 대표 개화기",
-        "자료에 기재된 성숙 크기",
     )
 
-    def __init__(self) -> None:
-        settings = get_settings()
-        self.api_key = settings.gemini_api_key.strip()
-        self.configured_model = settings.gemini_model.strip()
+    for phrase in forbidden:
+        text = text.replace(
+            phrase,
+            "",
+        )
 
-        if not self.api_key:
-            raise GeminiNotConfiguredError(
-                "Render 환경변수 GEMINI_API_KEY가 누락되었습니다."
+    return re.sub(
+        r"\s+",
+        " ",
+        text,
+    ).strip(" ,.;")
+
+
+def _validate_final_values(
+    generated: dict[str, Any],
+) -> None:
+    classification = generated.get(
+        "classification"
+    )
+
+    if not isinstance(
+        classification,
+        dict,
+    ):
+        raise PlantResearchError(
+            "AI 결과에 classification이 없습니다."
+        )
+
+    scientific_name = _clean_text(
+        generated.get("scientific_name")
+    )
+
+    flower_color = _clean_text(
+        classification.get("flower_color")
+    )
+
+    flowering_period = _clean_text(
+        classification.get(
+            "flowering_period"
+        )
+    )
+
+    height = _clean_text(
+        classification.get("height")
+    )
+
+    if not re.match(
+        r"^[A-Z][a-z-]+\s+"
+        r"(?:×\s*)?[a-z][a-z-]+",
+        scientific_name,
+    ):
+        raise PlantResearchError(
+            "풀 학명을 생성하지 못했습니다. "
+            "속명과 종명이 포함된 식물명을 "
+            "입력하거나 다시 검색하세요."
+        )
+
+    color_terms = (
+        "흰",
+        "백",
+        "크림",
+        "노랑",
+        "황",
+        "주황",
+        "적",
+        "빨강",
+        "분홍",
+        "보라",
+        "자주",
+        "파랑",
+        "청",
+        "녹",
+        "은회",
+        "갈",
+        "아이보리",
+    )
+
+    if not any(
+        term in flower_color
+        for term in color_terms
+    ):
+        raise PlantResearchError(
+            "검색자료에서 실제 꽃색을 "
+            "확정하지 못했습니다."
+        )
+
+    if not (
+        re.search(
+            r"\d{1,2}\s*월",
+            flowering_period,
+        )
+        or flowering_period
+        in {
+            "초봄",
+            "봄",
+            "늦봄",
+            "초여름",
+            "여름",
+            "늦여름",
+            "가을",
+            "겨울",
+        }
+    ):
+        raise PlantResearchError(
+            "검색자료에서 실제 개화기를 "
+            "확정하지 못했습니다."
+        )
+
+    if not re.search(
+        r"\d+(?:\.\d+)?"
+        r"(?:\s*[~\-–]\s*"
+        r"\d+(?:\.\d+)?)?"
+        r"\s*(?:cm|㎝)",
+        height,
+        flags=re.I,
+    ):
+        raise PlantResearchError(
+            "검색자료에서 cm 단위의 "
+            "성숙 초장을 확정하지 못했습니다."
+        )
+
+
+def _additional_queries(
+    name: str,
+) -> tuple[str, ...]:
+    return (
+        f'"{name}" accepted scientific name authority',
+        f'"{name}" full botanical name author citation',
+        f'"{name}" flower colour bloom months mature height cm',
+        f'"{name}" RHS height flowering colour',
+        f'"{name}" Kew accepted name',
+        f'"{name}" Missouri Botanical Garden',
+        f'"{name}" propagation origin breeder',
+    )
+
+
+def research_variety(
+    variety_name: str,
+    agency: str,
+) -> dict[str, Any]:
+    name = variety_name.strip()
+
+    if not name:
+        raise PlantResearchError(
+            "식물명 또는 품종명이 비어 있습니다."
+        )
+
+    search = GoogleSearchService()
+
+    web_results: list[WebSearchResult] = []
+
+    queries = (
+        f'"{name}" botanical profile characteristics',
+        f'"{name}" scientific name authority',
+        f'"{name}" flower colour flowering period height',
+        f'"{name}" origin propagation breeder',
+        f'"{name}" RHS',
+        f'"{name}" Kew',
+        f'"{name}" Missouri Botanical Garden',
+    )
+
+    try:
+        for query in queries:
+            web_results.extend(
+                search.search_web(
+                    query,
+                    num=10,
+                )
+            )
+    except GoogleSearchError as exc:
+        raise PlantResearchError(
+            f"Serper 검색 실패: {exc}"
+        ) from exc
+
+    sources = _dedupe_web(
+        web_results,
+        name,
+    )
+
+    # 1차 검색이 부족하면 상세 검색 추가
+    if len(sources) < 8:
+        for query in _additional_queries(
+            name
+        ):
+            web_results.extend(
+                search.search_web(
+                    query,
+                    num=10,
+                )
             )
 
-        self.client = genai.Client(api_key=self.api_key)
-        self.last_used_model: str | None = None
-
-    @staticmethod
-    def _normalize_model_id(value: str) -> str:
-        name = str(value or "").strip()
-        if name.startswith("models/"):
-            name = name[len("models/"):]
-        return name if re.fullmatch(r"gemini-[A-Za-z0-9._-]+", name) else ""
-
-    @staticmethod
-    def _supports_generate_content(model: Any) -> bool:
-        actions = getattr(model, "supported_actions", None) or []
-        if not actions:
-            return True
-        normalized = {str(action).lower().replace("_", "") for action in actions}
-        return "generatecontent" in normalized
-
-    @staticmethod
-    def _model_priority(model_id: str) -> tuple[int, int, int, str]:
-        lowered = model_id.lower()
-        return (
-            0 if "flash" in lowered else 1,
-            0 if "lite" not in lowered else 1,
-            1 if "preview" in lowered else 0,
-            lowered,
+        sources = _dedupe_web(
+            web_results,
+            name,
         )
 
-    def _available_models(self) -> list[str]:
-        found: list[str] = []
-        try:
-            for model in self.client.models.list():
-                if not self._supports_generate_content(model):
-                    continue
-                for candidate in (
-                    getattr(model, "base_model_id", None),
-                    getattr(model, "name", None),
-                ):
-                    model_id = self._normalize_model_id(str(candidate or ""))
-                    if model_id:
-                        break
-                else:
-                    continue
+    if not sources:
+        raise PlantResearchError(
+            f"Serper 검색에서 '{name}'와 "
+            "일치하는 자료를 찾지 못했습니다."
+        )
 
-                lowered = model_id.lower()
-                if any(blocked in lowered for blocked in (
-                    "embedding", "imagen", "veo", "tts", "live", "image-generation"
-                )):
-                    continue
-                found.append(model_id)
-        except Exception:
-            return []
+    source_text = _source_text(
+        sources
+    )
 
-        return sorted(list(dict.fromkeys(found)), key=self._model_priority)
+    try:
+        result = (
+            GeminiService()
+            .structure_plant_profile(
+                variety_name=name,
+                agency=agency,
+                source_text=source_text,
+            )
+        )
+    except GeminiQuotaError as exc:
+        raise PlantResearchError(
+            "Gemini 무료 할당량이 초과되어 "
+            "완성형 프로필을 생성하지 못했습니다. "
+            "할당량이 초기화된 후 다시 실행하세요."
+        ) from exc
+    except GeminiNotConfiguredError as exc:
+        raise PlantResearchError(
+            "완성형 학명·꽃색·개화기·초장과 "
+            "신고서 문장을 생성하려면 "
+            "GEMINI_API_KEY가 필요합니다."
+        ) from exc
+    except GeminiError as exc:
+        raise PlantResearchError(
+            f"Gemini 식물 프로필 생성 실패: {exc}"
+        ) from exc
 
-    def _model_candidates(self) -> list[str]:
-        candidates: list[str] = []
-        configured = self._normalize_model_id(self.configured_model)
-        if configured:
-            candidates.append(configured)
-        candidates.extend(self._available_models())
-        if not candidates:
-            candidates.extend(("gemini-flash-latest", "gemini-3-flash-preview"))
-        return list(dict.fromkeys(candidates))
+    generated = result.data
 
-    @staticmethod
-    def _response_text(response: Any) -> str:
-        text = str(getattr(response, "text", "") or "").strip()
-        if text:
-            return text
+    _validate_identity(
+        name,
+        generated,
+    )
 
-        parts: list[str] = []
-        for candidate in getattr(response, "candidates", None) or []:
-            content = getattr(candidate, "content", None)
-            for part in getattr(content, "parts", None) or []:
-                value = getattr(part, "text", None)
-                if value:
-                    parts.append(str(value))
+    classification = generated.get(
+        "classification"
+    )
 
-        text = "".join(parts).strip()
-        if not text:
-            raise GeminiError("Gemini 응답에 텍스트가 없습니다.")
-        return text
+    if not isinstance(
+        classification,
+        dict,
+    ):
+        classification = {}
 
-    @staticmethod
-    def _clean_json_text(text: str) -> str:
-        cleaned = re.sub(r"^```(?:json)?\s*", "", text.strip(), flags=re.I)
-        return re.sub(r"\s*```$", "", cleaned).strip()
+    generated["matched_name"] = (
+        _clean_text(
+            generated.get("matched_name")
+        )
+        or name
+    )
 
-    @staticmethod
-    def _normalize_text(value: Any) -> str:
-        return re.sub(r"\s+", " ", str(value or "")).strip()
+    generated["korean_name"] = (
+        _clean_text(
+            generated.get("korean_name")
+        )
+        or generated["matched_name"]
+    )
 
-    @staticmethod
-    def _sentence_count(value: str) -> int:
-        return len([s for s in re.split(r"(?<=[.!?다])\s+", value.strip()) if s.strip()])
+    generated["scientific_name"] = (
+        _clean_text(
+            generated.get("scientific_name")
+        )
+    )
 
-    @staticmethod
-    def _looks_like_full_scientific_name(value: str) -> bool:
-        return bool(re.match(
-            r"^[A-Z][a-z-]+\s+(?:×\s*)?[a-z][a-z-]+"
-            r"(?:\s+['\"][^'\"]+['\"])?"
-            r"(?:\s+[A-Z][A-Za-z.\- ]+)?$",
-            value.strip(),
-        ))
+    generated["characteristics_draft"] = (
+        _clean_text(
+            generated.get(
+                "characteristics_draft"
+            )
+        )
+    )
 
-    @staticmethod
-    def _looks_like_flower_color(value: str) -> bool:
-        text = value.strip()
-        if len(text) < 2:
-            return False
-        if text in ("대표", "색상", "꽃색", "미상", "없음", "해당 없음"):
-            return False
-        return any(term in text for term in (
-            "흰", "백", "크림", "노랑", "황", "주황", "적", "빨강",
-            "분홍", "자주", "보라", "청", "파랑", "녹", "은회", "갈", "아이보리"
-        ))
+    generated["breeding_process_draft"] = (
+        _clean_text(
+            generated.get(
+                "breeding_process_draft"
+            )
+        )
+    )
 
-    @staticmethod
-    def _looks_like_flowering_period(value: str) -> bool:
-        text = value.strip()
-        if re.search(r"\d{1,2}\s*월", text):
-            return True
-        return text in ("초봄", "봄", "늦봄", "초여름", "여름", "늦여름", "가을", "겨울")
+    classification["plant_type"] = (
+        _clean_text(
+            classification.get(
+                "plant_type"
+            )
+        )
+        or "관상용 식물"
+    )
 
-    @staticmethod
-    def _looks_like_height(value: str) -> bool:
-        return bool(re.search(
-            r"\d+(?:\.\d+)?(?:\s*[~\-–]\s*\d+(?:\.\d+)?)?\s*(?:cm|㎝)",
-            value.strip(), flags=re.I,
-        ))
+    classification["horticultural_group"] = (
+        _clean_text(
+            classification.get(
+                "horticultural_group"
+            )
+        )
+        or "원예 재배 식물"
+    )
 
-    def _validate_profile(self, data: dict[str, Any]) -> list[str]:
-        problems: list[str] = []
-        for field in (
-            "matched_name", "scientific_name", "characteristics_draft", "breeding_process_draft"
-        ):
-            if not self._normalize_text(data.get(field)):
-                problems.append(f"{field} 값이 비어 있습니다.")
+    classification["flowering_period"] = (
+        _clean_text(
+            classification.get(
+                "flowering_period"
+            )
+        )
+    )
 
-        classification = data.get("classification")
-        if not isinstance(classification, dict):
-            problems.append("classification이 객체 형식이 아닙니다.")
-            classification = {}
+    classification["flower_color"] = (
+        _clean_text(
+            classification.get(
+                "flower_color"
+            )
+        )
+    )
 
-        scientific_name = self._normalize_text(data.get("scientific_name"))
-        if scientific_name and not self._looks_like_full_scientific_name(scientific_name):
-            problems.append("scientific_name이 속명+종명 형태의 풀 학명이 아닙니다.")
+    classification["height"] = (
+        _clean_text(
+            classification.get("height")
+        )
+    )
 
-        if not self._looks_like_flower_color(self._normalize_text(classification.get("flower_color"))):
-            problems.append("flower_color에 실제 꽃색이 없습니다.")
-        if not self._looks_like_flowering_period(self._normalize_text(classification.get("flowering_period"))):
-            problems.append("flowering_period가 월 범위 또는 명확한 계절이 아닙니다.")
-        if not self._looks_like_height(self._normalize_text(classification.get("height"))):
-            problems.append("height가 cm 단위의 실제 수치가 아닙니다.")
+    classification["use"] = (
+        _clean_text(
+            classification.get("use")
+        )
+        or "정원·화단·분화 및 조경용"
+    )
 
-        characteristics = self._normalize_text(data.get("characteristics_draft"))
-        if characteristics:
-            if self._sentence_count(characteristics) < 4:
-                problems.append("characteristics_draft가 너무 짧습니다.")
-            if "http://" in characteristics or "https://" in characteristics:
-                problems.append("characteristics_draft에 URL이 포함되어 있습니다.")
+    generated["classification"] = (
+        classification
+    )
 
-        breeding = self._normalize_text(data.get("breeding_process_draft"))
-        if breeding and self._sentence_count(breeding) < 3:
-            problems.append("breeding_process_draft가 너무 짧습니다.")
+    _validate_final_values(
+        generated
+    )
 
-        combined = json.dumps(data, ensure_ascii=False)
-        for phrase in self.FORBIDDEN_PHRASES:
-            if phrase in combined:
-                problems.append(f"금지 문구가 포함되어 있습니다: {phrase}")
-        return problems
+    try:
+        overall_search = (
+            search.search_images(
+                f'"{name}" whole plant habit botanical',
+                num=14,
+            )
+        )
 
-    def _generate_json(self, *, model_id: str, prompt: str, max_output_tokens: int = 3200) -> dict[str, Any]:
-        response = self.client.models.generate_content(
-            model=model_id,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.1,
-                response_mime_type="application/json",
-                max_output_tokens=max_output_tokens,
+        closeup_search = (
+            search.search_images(
+                f'"{name}" close up flower foliage',
+                num=14,
+            )
+        )
+    except GoogleSearchError as exc:
+        raise PlantResearchError(
+            f"Serper 이미지 검색 실패: {exc}"
+        ) from exc
+
+    overall = _dedupe_images(
+        _image_candidates(
+            overall_search,
+            "overall",
+            "overall",
+            name,
+        )
+        + _commons_candidates(
+            name,
+            "overall",
+            "overall",
+        )
+    )
+
+    closeup = _dedupe_images(
+        _image_candidates(
+            closeup_search,
+            "closeup",
+            "closeup",
+            name,
+        )
+        + _commons_candidates(
+            name,
+            "closeup",
+            "closeup",
+        )
+    )
+
+    if not overall:
+        raise PlantResearchError(
+            f"'{name}'의 전체 모습 사진을 "
+            "찾지 못했습니다."
+        )
+
+    if not closeup:
+        raise PlantResearchError(
+            f"'{name}'의 근접 사진을 "
+            "찾지 못했습니다."
+        )
+
+    web_sources = [
+        {
+            "title": item.title,
+            "url": item.link,
+            "type": "Serper Google Search",
+            "status": "검색 근거",
+            "snippet": item.snippet,
+            "domain": item.display_link,
+            "priority": _domain_priority(
+                item.link
             ),
-        )
-        cleaned = self._clean_json_text(self._response_text(response))
-        try:
-            data = json.loads(cleaned)
-        except json.JSONDecodeError as exc:
-            raise GeminiError(f"Gemini JSON 해석 실패: {cleaned[:1400]}") from exc
-        if not isinstance(data, dict):
-            raise GeminiError("Gemini 응답이 JSON 객체가 아닙니다.")
-        return data
+        }
+        for item in sources
+    ]
 
-    def _repair_prompt(
-        self,
-        *,
-        original_prompt: str,
-        current_data: dict[str, Any],
-        problems: list[str],
-    ) -> str:
-        problem_text = "\n".join(f"- {problem}" for problem in problems)
-        current_json = json.dumps(current_data, ensure_ascii=False, indent=2)
-        return f"""
-아래는 식물 신고서용 JSON을 생성하는 원래 요청이다.
-
-[원래 요청]
-{original_prompt}
-
-[현재 JSON]
-{current_json}
-
-[수정해야 할 문제]
-{problem_text}
-
-JSON 전체를 다시 작성하라.
-1. scientific_name은 반드시 속명+종명 형식으로 작성하고 가능한 경우 품종명과 명명자를 포함한다.
-2. flower_color에는 실제 색상만 쓴다.
-3. flowering_period는 가능한 경우 '4~5월'처럼 월 범위로 쓴다.
-4. height는 반드시 cm 단위 수치 또는 범위로 쓴다.
-5. characteristics_draft는 검색문장을 붙여 넣지 말고 국립종자원 신고서 문체로 5~8문장 새로 작성한다.
-6. breeding_process_draft는 4~6문장으로 작성한다.
-7. URL과 출처 번호를 본문에 넣지 않는다.
-8. '확인 필요', '대표 꽃색', '대표 개화기', '성숙 초장 범위', '증빙자료 확인 후'를 쓰지 않는다.
-9. JSON 이외에는 출력하지 않는다.
-"""
-
-    def structure_json(self, prompt: str) -> GeminiCallResult:
-        errors_seen: list[str] = []
-        for model_id in self._model_candidates():
-            try:
-                data = self._generate_json(model_id=model_id, prompt=prompt)
-                problems = self._validate_profile(data)
-                if problems:
-                    data = self._generate_json(
-                        model_id=model_id,
-                        prompt=self._repair_prompt(
-                            original_prompt=prompt,
-                            current_data=data,
-                            problems=problems,
-                        ),
-                    )
-                    remaining = self._validate_profile(data)
-                    if remaining:
-                        raise GeminiError(
-                            "Gemini 결과 품질 검증 실패: " + " / ".join(remaining)
-                        )
-
-                self.last_used_model = model_id
-                return GeminiCallResult(data=data, model=model_id)
-
-            except errors.APIError as exc:
-                message = str(exc)
-                errors_seen.append(f"{model_id}: {exc.code} {message[:350]}")
-                if exc.code == 429:
-                    raise GeminiQuotaError("Gemini 무료 할당량을 초과했습니다.") from exc
-                if exc.code in (400, 404):
-                    continue
-                if exc.code in (401, 403):
-                    raise GeminiError(f"Gemini 인증 또는 권한 오류: {message}") from exc
-            except GeminiError as exc:
-                errors_seen.append(f"{model_id}: {str(exc)[:500]}")
-                continue
-            except Exception as exc:
-                errors_seen.append(
-                    f"{model_id}: {type(exc).__name__}: {str(exc)[:350]}"
-                )
-                continue
-
-        raise GeminiError(
-            "사용 가능한 Gemini 모델에서 적합한 식물 프로필을 생성하지 못했습니다. "
-            + " | ".join(errors_seen[:8])
-        )
-
-    def structure_plant_profile(
-        self,
-        *,
-        variety_name: str,
-        agency: str,
-        source_text: str,
-    ) -> GeminiCallResult:
-        prompt = f"""
-당신은 대한민국 국립종자원 및 산림청의 식물 품종 생산·수입판매 신고자료를 작성하는 전문 조사자이다.
-
-입력 식물 또는 품종명:
-{variety_name}
-
-신고 기관:
-{agency}
-
-아래 내용은 Serper 검색으로 수집한 해외 식물원, 공식 원예기관, 육종사, 공급사 및 식물 데이터베이스의 자료다.
-
-검색자료:
-{source_text}
-
-다음 기준을 지켜 JSON을 작성하라.
-1. 입력 식물과 직접 관련된 자료만 사용한다.
-2. 영어 검색문장을 그대로 이어 붙이지 않는다.
-3. 내용을 자연스럽게 한국어로 번역하고 중복을 제거한다.
-4. 국립종자원 제출용 객관적 문체로 다시 작성한다.
-5. scientific_name은 속명만 쓰지 않는다.
-6. 가능한 경우 속명+종명+품종명+명명자를 모두 포함한다.
-7. flower_color에는 실제 꽃색과 색상 변화를 작성한다.
-8. flowering_period는 가능한 경우 월 범위로 작성한다.
-9. height는 반드시 cm 단위로 작성한다.
-10. feet와 m는 cm로 환산한다.
-11. 여러 자료의 값이 다르면 신뢰 가능한 전체 범위를 통합한다.
-12. '확인 필요', '대표 꽃색', '대표 개화기', '성숙 초장 범위', '증빙자료 확인 후'를 쓰지 않는다.
-13. 특성 설명은 5~8문장으로 새로 작성한다.
-14. 육성과정은 4~6문장으로 새로 작성한다.
-15. JSON 이외에는 출력하지 않는다.
-
-반환 형식:
-{{
-  "matched_name": "입력과 일치하는 정확한 이름",
-  "korean_name": "한국어 통용명",
-  "scientific_name": "속명+종명+품종명+명명자를 포함한 풀 학명",
-  "genus": "속명",
-  "species": "종소명",
-  "cultivar": "품종명 또는 빈 문자열",
-  "origin": "원산지 또는 육성 지역",
-  "propagation_method": "대표 증식방법",
-  "classification": {{
-    "plant_type": "구체적인 식물 유형",
-    "horticultural_group": "원예 분류",
-    "flowering_period": "예: 6~7월",
-    "flower_color": "예: 크림백색",
-    "height": "예: 150~450 cm",
-    "use": "주요 이용"
-  }},
-  "characteristics_draft": "신고용 특성 설명 5~8문장",
-  "breeding_process_draft": "선발·육종·증식 과정 4~6문장",
-  "research_notes": []
-}}
-"""
-        return self.structure_json(prompt)
+    return {
+        "build_version": BUILD_VERSION,
+        "research_query": name,
+        "matched_name": (
+            generated["matched_name"]
+        ),
+        "korean_name": (
+            generated["korean_name"]
+        ),
+        "scientific_name": (
+            generated["scientific_name"]
+        ),
+        "genus": _clean_text(
+            generated.get("genus")
+        ),
+        "species": _clean_text(
+            generated.get("species")
+        ),
+        "cultivar": _clean_text(
+            generated.get("cultivar")
+        ),
+        "origin": _clean_text(
+            generated.get("origin")
+        ),
+        "propagation_method": _clean_text(
+            generated.get(
+                "propagation_method"
+            )
+        ),
+        "agency_recommendation": agency,
+        "match_confidence": None,
+        "classification": classification,
+        "characteristics_draft": (
+            generated[
+                "characteristics_draft"
+            ]
+        ),
+        "breeding_process_draft": (
+            generated[
+                "breeding_process_draft"
+            ]
+        ),
+        "shipment_match": {
+            "status": (
+                "ZIP 생성 시 Drive 자동 검색"
+            ),
+            "message": (
+                "Shipment Overview에서 현재 "
+                "입력 품종을 찾고 같은 행 H열 "
+                "Shipment를 사용합니다."
+            ),
+            "candidate_files": [],
+        },
+        "drive_sources": [],
+        "web_sources": web_sources,
+        "image_candidates": [
+            *overall,
+            *closeup,
+        ],
+        "selected_images": {
+            "overall": overall[0]["id"],
+            "closeup": closeup[0]["id"],
+        },
+        "required_documents": [
+            {
+                "name": "생산·수입판매 신고서",
+                "status": "자동 생성",
+            },
+            {
+                "name": "품종 특성 설명",
+                "status": "번역·통합 완료",
+            },
+            {
+                "name": "품종 육성과정",
+                "status": "신고서 문체 작성 완료",
+            },
+            {
+                "name": "인보이스",
+                "status": "Google Drive 검색",
+            },
+            {
+                "name": "검역합격증 또는 Phyto",
+                "status": "Google Drive 검색",
+            },
+            {
+                "name": "전체 모습 사진",
+                "status": "후보 선택 완료",
+            },
+            {
+                "name": "근접 사진",
+                "status": "후보 선택 완료",
+            },
+        ],
+        "warnings": [
+            "사진은 제출 전에 해당 식물과 "
+            "일치하는지 최종 확인하세요.",
+        ],
+        "research_provider": {
+            "web": "Serper Google Search",
+            "images": (
+                "Serper Image Search + "
+                "Wikimedia Commons"
+            ),
+            "generation": (
+                f"Gemini {result.model}"
+            ),
+        },
+    }
