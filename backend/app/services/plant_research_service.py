@@ -21,7 +21,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v18.0-three-import-folders"
+BUILD_VERSION = "v19.0-background-research"
 
 
 def _norm(value: Any) -> str:

@@ -11,6 +11,7 @@ export default function AIReportPage() {
   const [error, setError] = useState("");
   const [fileLoading, setFileLoading] = useState(false);
   const [fileStatus, setFileStatus] = useState("");
+  const [researchStatus, setResearchStatus] = useState("");
 
   useEffect(() => {
     api("/api/ai-reports/drive/status").then(setDriveStatus).catch(() => setDriveStatus(null));
@@ -30,16 +31,13 @@ export default function AIReportPage() {
         body: JSON.stringify({ variety_name: requestedName, agency }),
       });
 
-      const returnedQuery = String(response?.result_data?.research_query || "").trim();
-      if (!returnedQuery || returnedQuery.toLowerCase() !== requestedName.toLowerCase()) {
-        throw new Error(
-          `서버가 다른 품종 결과를 반환했습니다. 요청: ${requestedName}, 결과: ${returnedQuery || "확인 불가"}`
-        );
-      }
-
-      setDraft(response);
+      setResearchStatus("인터넷 자료 검색과 AI 번역·요약을 진행하고 있습니다.");
+      const completed = await waitForDraft(response.id, requestedName, setResearchStatus);
+      setDraft(completed);
+      setResearchStatus("");
     } catch (err) {
       setDraft(null);
+      setResearchStatus("");
       setError(err.message);
     } finally {
       setLoading(false);
@@ -75,6 +73,7 @@ export default function AIReportPage() {
       <label className="field"><span>신고 기관</span><select value={agency} onChange={e=>setAgency(e.target.value)}><option>국립종자원</option><option>산림청</option><option>둘 다</option></select></label>
       <button className="primary-button ai-generate-button" disabled={loading}>{loading?<LoaderCircle className="spin" size={19}/>:<Sparkles size={19}/>} AI 신고자료 생성</button>
     </form>
+    {researchStatus && <div className="file-status-message working"><LoaderCircle className="spin" size={18}/>{researchStatus}</div>}
     {error && <div className="error-banner">{error}</div>}
     {draft && <>
       <AIResult draft={draft} setDraft={setDraft} setError={setError}/>
@@ -85,6 +84,33 @@ export default function AIReportPage() {
       </section>
     </>}
   </div>;
+}
+
+
+async function waitForDraft(draftId, requestedName, onProgress) {
+  const startedAt = Date.now();
+  const timeoutMs = 8 * 60 * 1000;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    const current = await api(`/api/ai-reports/${draftId}`);
+
+    if (current.status === "생성 실패") {
+      throw new Error(current?.result_data?.error || "AI 신고자료 생성에 실패했습니다.");
+    }
+
+    if (current.status === "검토 대기" || current.status === "검토 완료") {
+      const returnedQuery = String(current?.result_data?.research_query || "").trim();
+      if (!returnedQuery || returnedQuery.toLowerCase() !== requestedName.toLowerCase()) {
+        throw new Error(`서버가 다른 품종 결과를 반환했습니다. 요청: ${requestedName}, 결과: ${returnedQuery || "확인 불가"}`);
+      }
+      return current;
+    }
+
+    onProgress(current?.result_data?.progress || `AI 조사 진행 중 · ${current.status}`);
+  }
+
+  throw new Error("조사 시간이 8분을 초과했습니다. 잠시 후 다시 시도하거나 초안 목록에서 상태를 확인하세요.");
 }
 
 function AIResult({ draft, setDraft, setError }) {

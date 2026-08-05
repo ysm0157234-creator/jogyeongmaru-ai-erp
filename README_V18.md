@@ -24,4 +24,4 @@ IMPORT_2023_FOLDER_ID
 
 ## 버전 표시
 
-`v18.0-three-import-folders`
+`v19.0-background-research`

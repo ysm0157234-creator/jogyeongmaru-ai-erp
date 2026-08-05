@@ -4,11 +4,11 @@ import copy
 import io
 import traceback
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import SessionLocal, get_db
 from app.models.ai_draft import AIDraft
 from app.models.user import User
 from app.schemas.ai_draft import AIDraftResponse, AIDraftUpdateRequest, AIGenerateRequest, AIFileGenerateRequest
@@ -21,7 +21,7 @@ from .deps import get_current_user
 
 router = APIRouter(prefix="/api/ai-reports", tags=["ai-reports"])
 
-BUILD_VERSION = "v18.0-three-import-folders"
+BUILD_VERSION = "v19.0-background-research"
 
 
 def get_owned_draft(db: Session, draft_id: int, user: User) -> AIDraft:
@@ -114,30 +114,96 @@ def drive_status(_: User = Depends(get_current_user)):
     }
 
 
-@router.post("/generate", response_model=AIDraftResponse, status_code=201)
-def generate_ai_report(payload: AIGenerateRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    variety_name = payload.variety_name.strip()
-    if not variety_name:
-        raise HTTPException(status_code=422, detail="신고할 품종명을 입력하세요.")
+def _run_research_job(draft_id: int, variety_name: str, agency: str) -> None:
+    """긴 인터넷 조사를 요청 응답과 분리해서 실행한다."""
+    db = SessionLocal()
     try:
-        result = research_variety(variety_name, payload.agency)
+        draft = db.get(AIDraft, draft_id)
+        if not draft:
+            print(f"[AI JOB] draft not found: {draft_id}", flush=True)
+            return
+
+        draft.status = "조사 중"
+        draft.result_data = {
+            "build_version": BUILD_VERSION,
+            "research_query": variety_name,
+            "progress": "Serper 검색과 AI 번역·요약을 진행하고 있습니다.",
+        }
+        db.add(draft)
+        db.commit()
+
+        result = research_variety(variety_name, agency)
         if str(result.get("research_query", "")).strip().lower() != variety_name.lower():
             raise PlantResearchError(
                 "조사 결과의 품종 식별자가 현재 입력값과 일치하지 않습니다."
             )
+
         result["build_version"] = BUILD_VERSION
-    except (GoogleSearchNotConfiguredError, GeminiNotConfiguredError) as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
-    except (GeminiError, PlantResearchError) as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
+        result.pop("progress", None)
+
+        draft = db.get(AIDraft, draft_id)
+        if not draft:
+            return
+        draft.result_data = result
+        draft.status = "검토 대기"
+        db.add(draft)
+        db.commit()
+        print(f"[AI JOB SUCCESS] draft={draft_id} variety={variety_name}", flush=True)
+
     except Exception as error:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"품종 인터넷 조사 중 오류: {type(error).__name__}: {error}") from error
+        db.rollback()
+        try:
+            draft = db.get(AIDraft, draft_id)
+            if draft:
+                draft.status = "생성 실패"
+                draft.result_data = {
+                    "build_version": BUILD_VERSION,
+                    "research_query": variety_name,
+                    "error": f"{type(error).__name__}: {error}",
+                }
+                db.add(draft)
+                db.commit()
+        except Exception:
+            traceback.print_exc()
+            db.rollback()
+    finally:
+        db.close()
 
-    draft = AIDraft(query_name=variety_name, agency=payload.agency, status="검토 대기", result_data=result, created_by=current_user.id)
+
+@router.post("/generate", response_model=AIDraftResponse, status_code=201)
+def generate_ai_report(
+    payload: AIGenerateRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    variety_name = payload.variety_name.strip()
+    if not variety_name:
+        raise HTTPException(status_code=422, detail="신고할 품종명을 입력하세요.")
+
+    # 먼저 빈 작업 레코드를 저장하고 즉시 응답한다. 긴 조사는 응답 후 실행된다.
+    draft = AIDraft(
+        query_name=variety_name,
+        agency=payload.agency,
+        status="대기 중",
+        result_data={
+            "build_version": BUILD_VERSION,
+            "research_query": variety_name,
+            "progress": "조사 작업을 준비하고 있습니다.",
+        },
+        created_by=current_user.id,
+    )
     db.add(draft)
     db.commit()
     db.refresh(draft)
+
+    background_tasks.add_task(
+        _run_research_job,
+        draft.id,
+        variety_name,
+        payload.agency,
+    )
     return draft
 
 

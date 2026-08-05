@@ -393,7 +393,7 @@ def run_workflow(variety_name: str, draft_data: dict) -> tuple[bytes, dict]:
     )
 
     manifest = {
-        "build_version": "v18.0-three-import-folders",
+        "build_version": "v19.0-background-research",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "variety": variety_name,
         "matched_name": final_name,
