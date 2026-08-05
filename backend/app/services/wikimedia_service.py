@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import html
 import json
+import re
 from dataclasses import dataclass
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -14,6 +16,13 @@ class CommonsImage:
     description_url: str
     artist: str
     license_name: str
+    description: str = ""
+
+
+def _plain(value: str) -> str:
+    text = html.unescape(str(value or ""))
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def search_commons_images(query: str, *, limit: int = 6) -> list[CommonsImage]:
@@ -22,10 +31,10 @@ def search_commons_images(query: str, *, limit: int = 6) -> list[CommonsImage]:
         "generator": "search",
         "gsrsearch": f"filetype:bitmap {query}",
         "gsrnamespace": 6,
-        "gsrlimit": max(1, min(limit, 20)),
+        "gsrlimit": max(1, min(limit, 30)),
         "prop": "imageinfo",
-        "iiprop": "url|extmetadata",
-        "iiurlwidth": 1000,
+        "iiprop": "url|extmetadata|size",
+        "iiurlwidth": 1200,
         "format": "json",
         "formatversion": 2,
         "origin": "*",
@@ -33,7 +42,7 @@ def search_commons_images(query: str, *, limit: int = 6) -> list[CommonsImage]:
     request = Request(
         "https://commons.wikimedia.org/w/api.php?" + urlencode(params),
         headers={
-            "User-Agent": "Jogyeongmaru-AI-ERP/8.0 (plant report research)",
+            "User-Agent": "Jogyeongmaru-AI-ERP/17.2 (plant report research)",
             "Accept": "application/json",
         },
     )
@@ -54,14 +63,22 @@ def search_commons_images(query: str, *, limit: int = 6) -> list[CommonsImage]:
         thumb = str(info.get("thumburl", "")).strip()
         if not original and not thumb:
             continue
+        description = " ".join(
+            filter(None, [
+                _plain((metadata.get("ImageDescription") or {}).get("value", "")),
+                _plain((metadata.get("ObjectName") or {}).get("value", "")),
+                _plain((metadata.get("Categories") or {}).get("value", "")),
+            ])
+        )
         output.append(
             CommonsImage(
                 title=str(page.get("title", "")).replace("File:", "").strip(),
                 original_url=original or thumb,
                 thumbnail_url=thumb or original,
                 description_url=str(info.get("descriptionurl", "")).strip(),
-                artist=str((metadata.get("Artist") or {}).get("value", "")).strip(),
-                license_name=str((metadata.get("LicenseShortName") or {}).get("value", "")).strip(),
+                artist=_plain((metadata.get("Artist") or {}).get("value", "")),
+                license_name=_plain((metadata.get("LicenseShortName") or {}).get("value", "")),
+                description=description,
             )
         )
     return output

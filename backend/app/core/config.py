@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     google_service_account_json: str = ""
     shipment_overview_file_id: str = ""
     import_2025_folder_id: str = ""
+    import_2024_folder_id: str = ""
+    import_2023_folder_id: str = ""
 
     # v12 검색 API
     serper_api_key: str = ""

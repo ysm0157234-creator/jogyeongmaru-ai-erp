@@ -21,7 +21,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v17.1-strict-name-image-folder-fix"
+BUILD_VERSION = "v18.0-three-import-folders"
 
 
 def _norm(value: Any) -> str:
@@ -308,7 +308,11 @@ def _commons_candidates(
     role: str,
     prefix: str,
 ) -> list[dict[str, Any]]:
-    # 명명자 표기는 Commons 검색에 방해될 수 있어 속명+종명(+품종명)만 사용한다.
+    """Wikimedia Commons에서 같은 종의 사진을 찾고 용도별로 점수화한다.
+
+    근접사진은 flower 키워드가 검색 제목에 없어도, 설명·파일명·카테고리의
+    flower/inflorescence/leaf/foliage 단어를 이용해 후보로 인정한다.
+    """
     identity = _clean_scientific_name(scientific_name) or scientific_name
     parts = identity.split()
     search_identity = " ".join(parts[:2])
@@ -318,45 +322,76 @@ def _commons_candidates(
 
     identity_terms = _terms(search_identity)
     required_terms = identity_terms[:2] if len(identity_terms) >= 2 else identity_terms
-    queries = (
-        (
-            f'{search_identity} whole plant',
+
+    if role == "overall":
+        queries = (
+            f'{search_identity}',
+            f'{search_identity} plant',
             f'{search_identity} habit',
             f'{search_identity} specimen',
         )
-        if role == "overall"
-        else (
-            f'{search_identity} flower close up',
-            f'{search_identity} bloom',
-            f'{search_identity} leaf foliage',
+        positive_words = (
+            "whole plant", "habit", "specimen", "shrub", "tree", "garden",
+            "landscape", "rosette", "plant"
         )
-    )
-    role_words = (
-        ("whole", "habit", "specimen", "plant", "shrub", "tree")
-        if role == "overall"
-        else ("flower", "bloom", "blossom", "leaf", "foliage", "bud", "catkin", "close")
-    )
+        negative_words = (
+            "flower", "inflorescence", "blossom", "close-up", "close up",
+            "detail", "leaf detail", "pollen", "fruit detail"
+        )
+    else:
+        queries = (
+            f'{search_identity} flower',
+            f'{search_identity} inflorescence',
+            f'{search_identity} blossom',
+            f'{search_identity} leaf',
+            f'{search_identity} foliage',
+            f'{search_identity}',
+        )
+        positive_words = (
+            "flower", "flowers", "bloom", "blossom", "inflorescence",
+            "close-up", "close up", "detail", "leaf", "foliage", "bud",
+            "catkin", "petal", "stamen", "fruit"
+        )
+        negative_words = (
+            "landscape", "garden view", "whole plant", "habit", "specimen tree"
+        )
 
     output: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for query in queries:
-        for image in search_commons_images(query, limit=18):
+
+    for query_index, query in enumerate(queries):
+        for image in search_commons_images(query, limit=30):
             key = image.original_url or image.thumbnail_url
             if not key or key in seen:
                 continue
+
             searchable = " ".join((
-                image.title or "", image.description_url or "", image.original_url or ""
+                image.title or "",
+                image.description or "",
+                image.description_url or "",
+                image.original_url or "",
             ))
             normalized = _norm(searchable)
-            # 속명과 종소명이 모두 없는 이미지는 무조건 제외한다.
+
+            # 속명과 종소명이 둘 다 포함된 사진만 유지한다.
             if required_terms and not all(_norm(term) in normalized for term in required_terms):
                 continue
+
             lowered = searchable.lower()
-            role_score = sum(8 for word in role_words if word in lowered)
-            relevance = _score(searchable, identity_terms)
-            total = relevance + role_score + 55
-            if total < 75:
+            positive_score = sum(12 for word in positive_words if word in lowered)
+            negative_score = sum(10 for word in negative_words if word in lowered)
+            identity_score = _score(searchable, identity_terms)
+
+            # 종명만 검색한 마지막 쿼리도 근접 후보 풀이 되도록 하되,
+            # 명시적 부위 단어가 있는 사진을 훨씬 우선한다.
+            query_bonus = max(0, 14 - query_index * 2)
+            total = identity_score + positive_score - negative_score + 55 + query_bonus
+
+            # 같은 종이 확실하면 부위 단어가 없어도 후보로 보존한다.
+            minimum = 62 if role == "closeup" else 66
+            if total < minimum:
                 continue
+
             seen.add(key)
             output.append({
                 "id": f"{prefix}-commons-{len(output) + 1}",
@@ -374,6 +409,7 @@ def _commons_candidates(
                 "recommended": False,
                 "research_query": search_identity,
                 "relevance_score": total,
+                "image_description": image.description,
             })
 
     return sorted(
@@ -970,9 +1006,28 @@ def research_variety(
         )
 
     if not closeup:
+        # 근접 키워드가 없는 경우에도 같은 종의 다른 사진을 후보로 제공한다.
+        # 연관 없는 종은 required_terms 검사에서 이미 제외된다.
+        broad_species = _dedupe_images(
+            _commons_candidates(scientific_query, "overall", "closeup-fallback"),
+            limit=10,
+        )
+        used_urls = {
+            item.get("download_url") or item.get("preview_url")
+            for item in overall[:2]
+        }
+        closeup = [
+            {**item, "role": "closeup", "recommended": False}
+            for item in broad_species
+            if (item.get("download_url") or item.get("preview_url")) not in used_urls
+        ]
+        if closeup:
+            closeup[0]["recommended"] = True
+
+    if not closeup:
         raise PlantResearchError(
-            f"'{name}'의 근접 사진을 "
-            "찾지 못했습니다."
+            f"'{name}'와 같은 종의 근접 사진 후보를 찾지 못했습니다. "
+            "학명을 종 단위로 입력한 뒤 다시 시도하세요."
         )
 
     web_sources = [

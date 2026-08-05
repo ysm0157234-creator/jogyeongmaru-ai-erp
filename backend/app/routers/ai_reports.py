@@ -21,7 +21,7 @@ from .deps import get_current_user
 
 router = APIRouter(prefix="/api/ai-reports", tags=["ai-reports"])
 
-BUILD_VERSION = "v17.1-strict-name-image-folder-fix"
+BUILD_VERSION = "v18.0-three-import-folders"
 
 
 def get_owned_draft(db: Session, draft_id: int, user: User) -> AIDraft:
@@ -53,6 +53,8 @@ def drive_status(_: User = Depends(get_current_user)):
         "GOOGLE_SERVICE_ACCOUNT_JSON": bool(settings.google_service_account_json.strip()),
         "SHIPMENT_OVERVIEW_FILE_ID": bool(settings.shipment_overview_file_id.strip()),
         "IMPORT_2025_FOLDER_ID": bool(settings.import_2025_folder_id.strip()),
+        "IMPORT_2024_FOLDER_ID": bool(settings.import_2024_folder_id.strip()),
+        "IMPORT_2023_FOLDER_ID": bool(settings.import_2023_folder_id.strip()),
         "SERPER_API_KEY": bool(settings.serper_api_key.strip()),
         "GEMINI_API_KEY": bool(settings.gemini_api_key.strip()),
     }
@@ -60,6 +62,8 @@ def drive_status(_: User = Depends(get_current_user)):
         "GOOGLE_SERVICE_ACCOUNT_JSON",
         "SHIPMENT_OVERVIEW_FILE_ID",
         "IMPORT_2025_FOLDER_ID",
+        "IMPORT_2024_FOLDER_ID",
+        "IMPORT_2023_FOLDER_ID",
         "SERPER_API_KEY",
         "GEMINI_API_KEY",
     )
@@ -75,6 +79,8 @@ def drive_status(_: User = Depends(get_current_user)):
                 "GOOGLE_SERVICE_ACCOUNT_JSON",
                 "SHIPMENT_OVERVIEW_FILE_ID",
                 "IMPORT_2025_FOLDER_ID",
+                "IMPORT_2024_FOLDER_ID",
+                "IMPORT_2023_FOLDER_ID",
                 "SERPER_API_KEY",
                 "GEMINI_API_KEY",
             )
@@ -85,6 +91,8 @@ def drive_status(_: User = Depends(get_current_user)):
                 "GOOGLE_SERVICE_ACCOUNT_JSON",
                 "SHIPMENT_OVERVIEW_FILE_ID",
                 "IMPORT_2025_FOLDER_ID",
+                "IMPORT_2024_FOLDER_ID",
+                "IMPORT_2023_FOLDER_ID",
             )
         ),
         "research_configured": all(

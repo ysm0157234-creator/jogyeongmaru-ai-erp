@@ -39,7 +39,11 @@ services:
       - key: SHIPMENT_OVERVIEW_FILE_ID
         value: "1ivbvqCc7jeA9dX23nW3jpjpDQ3R_NBuw"
       - key: IMPORT_2025_FOLDER_ID
-        value: "1y1wGHlpIEZY2wPFNWA4JoCnEARFXQvmq"
+        sync: false
+      - key: IMPORT_2024_FOLDER_ID
+        sync: false
+      - key: IMPORT_2023_FOLDER_ID
+        sync: false
       - key: SERPER_API_KEY
         sync: false
       - key: GEMINI_API_KEY

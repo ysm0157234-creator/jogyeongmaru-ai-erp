@@ -46,6 +46,10 @@ class GoogleDriveService:
             missing.append("SHIPMENT_OVERVIEW_FILE_ID")
         if not settings.import_2025_folder_id.strip():
             missing.append("IMPORT_2025_FOLDER_ID")
+        if not settings.import_2024_folder_id.strip():
+            missing.append("IMPORT_2024_FOLDER_ID")
+        if not settings.import_2023_folder_id.strip():
+            missing.append("IMPORT_2023_FOLDER_ID")
 
         if missing:
             raise DriveNotConfiguredError(

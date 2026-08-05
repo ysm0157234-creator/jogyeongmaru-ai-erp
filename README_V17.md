@@ -20,7 +20,7 @@
 
 ## 배포 확인 버전
 
-`v17.1-strict-name-image-folder-fix`
+`v17.2-commons-closeup-fallback`
 
 ## 필수 환경변수
 

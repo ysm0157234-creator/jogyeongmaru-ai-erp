@@ -111,26 +111,68 @@ def _supplier_match_score(folder_name: str, supplier: str) -> float:
     return ratio * 80.0
 
 
-def find_supplier_folder(drive: GoogleDriveService, root_id: str, supplier: str) -> DriveFile:
-    # 국가명, 법인 접미사, 공백·밑줄·대소문자가 달라도 같은 업체로 찾는다.
-    candidates = [item for item in drive.list_children(root_id) if is_folder(item)]
-    if not candidates:
-        candidates = [
-            item for item in drive.walk(root_id, max_depth=4, max_items=2500)
-            if is_folder(item)
-        ]
+def find_supplier_folder(
+    drive: GoogleDriveService,
+    root_id: str,
+    supplier: str,
+) -> tuple[DriveFile | None, list[str]]:
+    """
+    지정된 연도 수입 폴더 바로 아래의 업체 폴더만 검사한다.
+
+    Google Drive 전체 검색이나 다른 폴더 재귀 탐색은 하지 않는다.
+    """
+    candidates = [
+        item
+        for item in drive.list_children(root_id)
+        if is_folder(item)
+    ]
 
     ranked = sorted(
-        ((_supplier_match_score(item.name, supplier), item) for item in candidates),
+        (
+            (_supplier_match_score(item.name, supplier), item)
+            for item in candidates
+        ),
         key=lambda pair: (-pair[0], pair[1].name.lower()),
     )
-    if ranked and ranked[0][0] >= 68.0:
-        return ranked[0][1]
 
-    checked = ", ".join(item.name for _, item in ranked[:20]) or "없음"
+    if ranked and ranked[0][0] >= 68.0:
+        return ranked[0][1], [item.name for _, item in ranked[:20]]
+
+    return None, [item.name for _, item in ranked[:20]]
+
+
+def find_supplier_across_import_folders(
+    drive: GoogleDriveService,
+    *,
+    supplier: str,
+    folders: list[tuple[str, str]],
+) -> tuple[DriveFile, str]:
+    """
+    2025 → 2024 → 2023 순서로 지정된 폴더만 검사한다.
+    """
+    checked_by_year: list[str] = []
+
+    for year_label, folder_id in folders:
+        clean_id = str(folder_id or "").strip()
+        if not clean_id:
+            checked_by_year.append(f"{year_label}: 환경변수 누락")
+            continue
+
+        match, checked = find_supplier_folder(
+            drive,
+            clean_id,
+            supplier,
+        )
+        if match:
+            return match, year_label
+
+        preview = ", ".join(checked[:12]) or "업체 폴더 없음"
+        checked_by_year.append(f"{year_label}: {preview}")
+
+    details = " / ".join(checked_by_year)
     raise RequiredFileMissingError(
-        f"2025 수입에서 업체 폴더를 찾지 못했습니다: {supplier}. "
-        f"확인한 폴더: {checked}"
+        f"2025·2024·2023 수입 폴더에서 업체를 찾지 못했습니다: "
+        f"{supplier}. 확인 결과: {details}"
     )
 
 
@@ -283,7 +325,15 @@ def run_workflow(variety_name: str, draft_data: dict) -> tuple[bytes, dict]:
     shipment_bytes = drive.download(settings.shipment_overview_file_id)
     match = find_variety_in_workbook(shipment_bytes, variety_name)
     supplier_name, number = split_shipment(match.shipment)
-    supplier = find_supplier_folder(drive, settings.import_2025_folder_id, supplier_name)
+    supplier, import_year = find_supplier_across_import_folders(
+        drive,
+        supplier=supplier_name,
+        folders=[
+            ("2025 수입", settings.import_2025_folder_id),
+            ("2024 수입", settings.import_2024_folder_id),
+            ("2023 수입", settings.import_2023_folder_id),
+        ],
+    )
     shipping = find_shipping_folder(drive, supplier)
     container = find_container_folder(drive, shipping, number)
     invoice, quarantine = find_documents(drive, container)
@@ -343,7 +393,7 @@ def run_workflow(variety_name: str, draft_data: dict) -> tuple[bytes, dict]:
     )
 
     manifest = {
-        "build_version": "v17.1-strict-name-image-folder-fix",
+        "build_version": "v18.0-three-import-folders",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "variety": variety_name,
         "matched_name": final_name,
@@ -351,6 +401,7 @@ def run_workflow(variety_name: str, draft_data: dict) -> tuple[bytes, dict]:
         "shipment": match.shipment,
         "shipment_sheet": match.sheet_name,
         "shipment_row": match.row_number,
+        "import_year_folder": import_year,
         "supplier_folder": supplier.name,
         "shipping_folder": shipping.name,
         "container_folder": container.name,
