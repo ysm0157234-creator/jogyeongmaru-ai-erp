@@ -4,8 +4,8 @@ import copy
 import io
 import traceback
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal, get_db
@@ -17,11 +17,12 @@ from app.services.gemini_service import GeminiError, GeminiNotConfiguredError
 from app.services.google_search_service import GoogleSearchNotConfiguredError
 from app.services.plant_research_service import PlantResearchError, research_variety
 from app.services.workflow import RequiredFileMissingError, run_workflow
+from app.services.upload_service import UploadError, get_upload, save_upload
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/ai-reports", tags=["ai-reports"])
 
-BUILD_VERSION = "v19.0-background-research"
+BUILD_VERSION = "v19.1-stable-uploads-docx"
 
 
 def get_owned_draft(db: Session, draft_id: int, user: User) -> AIDraft:
@@ -34,15 +35,10 @@ def get_owned_draft(db: Session, draft_id: int, user: User) -> AIDraft:
 
 
 def validate_result_data(data: dict) -> None:
-    selected = data.get("selected_images", {})
-    if not selected.get("overall") or not selected.get("closeup"):
-        raise HTTPException(status_code=422, detail="전체 모습과 꽃 근접 사진을 각각 선택해야 합니다.")
-    if selected.get("overall") == selected.get("closeup"):
-        raise HTTPException(status_code=422, detail="전체 모습과 꽃 근접 사진은 서로 달라야 합니다.")
-    if not str(data.get("characteristics_draft", "")).strip():
-        raise HTTPException(status_code=422, detail="품종 특성 설명이 비어 있습니다.")
-    if not str(data.get("breeding_process_draft", "")).strip():
-        raise HTTPException(status_code=422, detail="품종 육성과정이 비어 있습니다.")
+    # 사진·Drive 첨부가 없어도 초안을 저장하고 호환용 DOCX를 생성할 수 있다.
+    # 비어 있는 항목은 최종 ZIP의 경고와 자리표시자로 명확히 표시한다.
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=422, detail="AI 초안 데이터 형식이 올바르지 않습니다.")
 
 
 @router.get("/drive/status")
@@ -169,6 +165,49 @@ def _run_research_job(draft_id: int, variety_name: str, agency: str) -> None:
             db.rollback()
     finally:
         db.close()
+
+
+
+
+@router.post("/upload")
+async def upload_supporting_file(
+    role: str = Form(...),
+    file: UploadFile = File(...),
+    _: User = Depends(get_current_user),
+):
+    allowed = {"overall", "closeup", "invoice", "quarantine"}
+    if role not in allowed:
+        raise HTTPException(status_code=422, detail="지원하지 않는 업로드 종류입니다.")
+    try:
+        data = await file.read()
+        stored = save_upload(
+            data=data,
+            filename=file.filename or "upload.bin",
+            content_type=file.content_type or "application/octet-stream",
+            role=role,
+        )
+    except UploadError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "upload_id": stored.id,
+        "role": role,
+        "name": stored.original_name,
+        "content_type": stored.content_type,
+        "preview_url": f"/api/ai-reports/uploads/{stored.id}",
+    }
+
+
+@router.get("/uploads/{upload_id}")
+def read_uploaded_file(upload_id: str):
+    try:
+        stored = get_upload(upload_id)
+    except UploadError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(
+        stored.path,
+        media_type=stored.content_type,
+        filename=stored.original_name,
+    )
 
 
 @router.post("/generate", response_model=AIDraftResponse, status_code=201)

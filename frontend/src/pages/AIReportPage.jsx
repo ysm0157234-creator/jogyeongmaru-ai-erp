@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, FileSearch, Image as ImageIcon, LoaderCircle, Pencil, Save, Search, Sparkles, X } from "lucide-react";
-import { api, apiDownload } from "../services/api";
+import { API_URL, api, apiDownload, apiUpload } from "../services/api";
 
 export default function AIReportPage() {
   const [varietyName, setVarietyName] = useState("");
@@ -12,6 +12,7 @@ export default function AIReportPage() {
   const [fileLoading, setFileLoading] = useState(false);
   const [fileStatus, setFileStatus] = useState("");
   const [researchStatus, setResearchStatus] = useState("");
+  const [currentResultData, setCurrentResultData] = useState(null);
 
   useEffect(() => {
     api("/api/ai-reports/drive/status").then(setDriveStatus).catch(() => setDriveStatus(null));
@@ -21,6 +22,7 @@ export default function AIReportPage() {
     event.preventDefault();
     const requestedName = varietyName.trim();
     setDraft(null);
+    setCurrentResultData(null);
     setLoading(true);
     setError("");
     setFileStatus("");
@@ -34,6 +36,7 @@ export default function AIReportPage() {
       setResearchStatus("인터넷 자료 검색과 AI 번역·요약을 진행하고 있습니다.");
       const completed = await waitForDraft(response.id, requestedName, setResearchStatus);
       setDraft(completed);
+      setCurrentResultData(completed.result_data);
       setResearchStatus("");
     } catch (err) {
       setDraft(null);
@@ -47,6 +50,13 @@ export default function AIReportPage() {
   async function generateFiles() {
     setFileLoading(true); setError(""); setFileStatus("신고서와 사진 파일을 만들고 있습니다.");
     try {
+      if (currentResultData) {
+        const updated = await api(`/api/ai-reports/${draft.id}`, {
+          method: "PUT",
+          body: JSON.stringify({ result_data: currentResultData, status: "검토 완료" }),
+        });
+        setDraft(updated);
+      }
       const response = await apiDownload("/api/ai-reports/generate-files", {
         method: "POST",
         body: JSON.stringify({ variety_name: varietyName, agency, draft_id: draft.id }),
@@ -76,7 +86,7 @@ export default function AIReportPage() {
     {researchStatus && <div className="file-status-message working"><LoaderCircle className="spin" size={18}/>{researchStatus}</div>}
     {error && <div className="error-banner">{error}</div>}
     {draft && <>
-      <AIResult draft={draft} setDraft={setDraft} setError={setError}/>
+      <AIResult draft={draft} setDraft={setDraft} setError={setError} onFormChange={setCurrentResultData}/>
       <section className="panel actual-file-box">
         <div><h2>실제 신고파일 만들기</h2><p>저장한 초안과 전체샷·근접샷을 문서에 반영합니다.</p></div>
         <button className="primary-button icon-button" onClick={generateFiles} disabled={fileLoading || !driveStatus?.configured}>{fileLoading?<LoaderCircle className="spin" size={18}/>:<FileSearch size={18}/>} ZIP 생성</button>
@@ -113,11 +123,12 @@ async function waitForDraft(draftId, requestedName, onProgress) {
   throw new Error("조사 시간이 8분을 초과했습니다. 잠시 후 다시 시도하거나 초안 목록에서 상태를 확인하세요.");
 }
 
-function AIResult({ draft, setDraft, setError }) {
+function AIResult({ draft, setDraft, setError, onFormChange }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(() => structuredClone(draft.result_data));
   useEffect(()=>setForm(structuredClone(draft.result_data)),[draft]);
+  useEffect(()=>onFormChange?.(form),[form,onFormChange]);
 
   const overall = useMemo(()=>(form.image_candidates || []).filter(i=>i.role==="overall"),[form.image_candidates]);
   const closeup = useMemo(()=>(form.image_candidates || []).filter(i=>i.role==="closeup"),[form.image_candidates]);
@@ -145,21 +156,71 @@ function AIResult({ draft, setDraft, setError }) {
       <Card editing={editing} label="주요 용도" value={form.classification?.use || ""} onChange={v=>change(["classification","use"],v)}/>
     </section>
     <section className="panel"><h2>AI 작성 초안</h2><div className="draft-text-grid"><article><h3>품종의 특성 설명</h3><textarea rows="7" disabled={!editing} value={form.characteristics_draft} onChange={e=>change(["characteristics_draft"],e.target.value)}/></article><article><h3>품종의 육성과정</h3><textarea rows="7" disabled={!editing} value={form.breeding_process_draft} onChange={e=>change(["breeding_process_draft"],e.target.value)}/></article></div></section>
-    <Photo title="사진 1 · 품종 전체 모습" description="식물 또는 꽃대 전체 형태가 보이는 사진" images={overall} selected={form.selected_images?.overall} onSelect={id=>select("overall",id)}/>
-    <Photo title="사진 2 · 꽃 근접 모습" description="꽃잎 색상과 형태가 잘 보이는 근접 사진" images={closeup} selected={form.selected_images?.closeup} onSelect={id=>select("closeup",id)}/>
+    <Photo role="overall" title="사진 1 · 품종 전체 모습" description="식물 또는 꽃대 전체 형태가 보이는 사진" images={overall} selected={form.selected_images?.overall} onSelect={id=>select("overall",id)} onUploaded={item=>setForm(c=>({...c,image_candidates:[...(c.image_candidates||[]),item],selected_images:{...(c.selected_images||{}),overall:item.id}}))}/>
+    <Photo role="closeup" title="사진 2 · 꽃 근접 모습" description="꽃·잎의 색상과 형태가 잘 보이는 근접 사진" images={closeup} selected={form.selected_images?.closeup} onSelect={id=>select("closeup",id)} onUploaded={item=>setForm(c=>({...c,image_candidates:[...(c.image_candidates||[]),item],selected_images:{...(c.selected_images||{}),closeup:item.id}}))}/>
+    <SupportingUploads form={form} setForm={setForm} setError={setError}/>
     <section className="panel warning-panel"><div className="ai-final-actions">{!editing?<button className="secondary-button icon-button" onClick={()=>setEditing(true)}><Pencil size={17}/>초안 수정</button>:<><button className="secondary-button icon-button" onClick={()=>{setForm(structuredClone(draft.result_data));setEditing(false);}}><X size={17}/>취소</button><button className="primary-button icon-button" onClick={save} disabled={saving}>{saving?<LoaderCircle className="spin" size={17}/>:<Save size={17}/>}수정 저장</button></>} {!editing&&<button className="primary-button" onClick={save}>신고 검토함에 저장</button>}</div></section>
   </div>;
 }
+function SupportingUploads({form,setForm,setError}) {
+  const [busy,setBusy]=useState("");
+  async function upload(role,event){
+    const file=event.target.files?.[0]; event.target.value=""; if(!file)return;
+    setBusy(role);setError("");
+    try{
+      const body=new FormData();body.append("role",role);body.append("file",file);
+      const uploaded=await apiUpload("/api/ai-reports/upload",body);
+      setForm(current=>({...current,manual_files:{...(current.manual_files||{}),[role]:{upload_id:uploaded.upload_id,name:uploaded.name,content_type:uploaded.content_type}}}));
+    }catch(error){setError(error.message);}finally{setBusy("");}
+  }
+  const files=form.manual_files||{};
+  return <section className="panel supporting-upload-panel"><h2>Invoice·검역서류 직접 첨부</h2><p className="muted">Drive에서 못 찾아도 전체 작업은 실패하지 않습니다. 필요한 파일만 직접 올릴 수 있습니다.</p><div className="supporting-upload-grid">
+    <label className="secondary-button upload-button">{busy==="invoice"?"업로드 중...":"Invoice 업로드"}<input type="file" accept=".pdf,.xlsx,.xlsm" onChange={e=>upload("invoice",e)}/></label><span>{files.invoice?.name||"미첨부"}</span>
+    <label className="secondary-button upload-button">{busy==="quarantine"?"업로드 중...":"검역·Phyto 업로드"}<input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={e=>upload("quarantine",e)}/></label><span>{files.quarantine?.name||"미첨부"}</span>
+  </div></section>;
+}
+
 function Card({editing,label,value,onChange}){return <article className="ai-summary-card"><span>{label}</span>{editing?<input value={value} onChange={e=>onChange(e.target.value)}/>:<strong>{value}</strong>}</article>}
-function Photo({title,description,images,selected,onSelect}) {
+function Photo({role,title,description,images,selected,onSelect,onUploaded}) {
+  const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState(null);
   useEffect(() => {
     function onKeyDown(event) { if (event.key === "Escape") setPreview(null); }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+  async function uploadImage(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setUploading(true);
+    try {
+      const body = new FormData();
+      body.append("role", role);
+      body.append("file", file);
+      const uploaded = await apiUpload("/api/ai-reports/upload", body);
+      const id = `upload-${role}-${uploaded.upload_id}`;
+      onUploaded({
+        id,
+        role,
+        title: uploaded.name,
+        source: "직접 업로드",
+        source_url: "",
+        preview_url: `${API_URL}${uploaded.preview_url}`,
+        download_url: `${API_URL}${uploaded.preview_url}`,
+        upload_id: uploaded.upload_id,
+        recommended: true,
+      });
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setUploading(false);
+    }
+  }
   return <>
     <section className="panel"><div className="ai-section-title"><ImageIcon size={20}/><h2>{title}</h2></div><p className="muted">{description}</p>
+      <label className="secondary-button upload-button">{uploading?"업로드 중...":"내 사진 직접 업로드"}<input type="file" accept="image/*" disabled={uploading} onChange={uploadImage}/></label>
+      {images.length===0&&<div className="empty-photo-message">자동 사진 후보가 없습니다. 위 버튼으로 직접 사진을 올려도 초안과 ZIP을 만들 수 있습니다.</div>}
       <div className="image-candidate-grid">{images.map(image=><article key={image.id} className={`image-candidate ${selected===image.id?"selected":""}`}>
         <button type="button" className="image-preview-button" onClick={()=>setPreview(image)}><img src={image.preview_url} alt={image.title}/><span className="image-zoom-label">클릭해서 크게 보기</span></button>
         <div className="image-candidate-body"><strong>{image.title}</strong><span>{image.source}</span><button type="button" className={`image-select-button ${selected===image.id?"selected":""}`} onClick={()=>onSelect(image.id)}>{selected===image.id&&<CheckCircle2 size={16}/>} {selected===image.id?"이 사진 사용 중":"이 사진 선택"}</button></div>

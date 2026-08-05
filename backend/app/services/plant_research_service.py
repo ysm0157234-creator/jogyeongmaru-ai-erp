@@ -21,7 +21,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v19.0-background-research"
+BUILD_VERSION = "v19.1-stable-uploads-docx"
 
 
 def _norm(value: Any) -> str:
@@ -1000,10 +1000,7 @@ def research_variety(
             closeup[0]["recommended"] = True
 
     if not overall:
-        raise PlantResearchError(
-            f"'{name}'의 전체 모습 사진을 "
-            "찾지 못했습니다."
-        )
+        overall = []
 
     if not closeup:
         # 근접 키워드가 없는 경우에도 같은 종의 다른 사진을 후보로 제공한다.
@@ -1025,10 +1022,7 @@ def research_variety(
             closeup[0]["recommended"] = True
 
     if not closeup:
-        raise PlantResearchError(
-            f"'{name}'와 같은 종의 근접 사진 후보를 찾지 못했습니다. "
-            "학명을 종 단위로 입력한 뒤 다시 시도하세요."
-        )
+        closeup = []
 
     web_sources = [
         {
@@ -1105,9 +1099,10 @@ def research_variety(
             *closeup,
         ],
         "selected_images": {
-            "overall": overall[0]["id"],
-            "closeup": closeup[0]["id"],
+            "overall": overall[0]["id"] if overall else "",
+            "closeup": closeup[0]["id"] if closeup else "",
         },
+        "manual_files": {},
         "required_documents": [
             {
                 "name": "생산·수입판매 신고서",
@@ -1131,16 +1126,17 @@ def research_variety(
             },
             {
                 "name": "전체 모습 사진",
-                "status": "후보 선택 완료",
+                "status": "후보 선택 완료" if overall else "직접 업로드 필요",
             },
             {
                 "name": "근접 사진",
-                "status": "후보 선택 완료",
+                "status": "후보 선택 완료" if closeup else "직접 업로드 필요",
             },
         ],
         "warnings": [
-            "사진은 제출 전에 해당 식물과 "
-            "일치하는지 최종 확인하세요.",
+            "사진은 제출 전에 해당 식물과 일치하는지 최종 확인하세요.",
+            *( ["전체 모습 사진 후보가 없어 직접 업로드가 필요합니다."] if not overall else [] ),
+            *( ["근접 사진 후보가 없어 직접 업로드가 필요합니다."] if not closeup else [] ),
         ],
         "research_provider": {
             "web": "Serper Google Search",

@@ -77,3 +77,25 @@ export async function apiDownload(path, options = {}) {
   }
   return response;
 }
+
+export async function apiUpload(path, formData) {
+  const headers = new Headers();
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+  if (!response.ok) {
+    let message = "파일 업로드 중 오류가 발생했습니다.";
+    try {
+      const body = await response.json();
+      message = body.detail || message;
+    } catch {
+      // ignore
+    }
+    throw new Error(message);
+  }
+  return response.json();
+}

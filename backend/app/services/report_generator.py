@@ -2,14 +2,19 @@ from __future__ import annotations
 
 import io
 from datetime import date
+from typing import Any
 
 from docx import Document
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Mm
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Mm, Pt
 
 
 COMPANY = {
     "representative": "황수영",
+    "birth_date": "1985. 5. 15.",
     "address": "경기도 평택시 진위면 서촌로 38-9",
     "company_name": "농업회사법인 주식회사 조경마루",
     "phone": "010-9377-3058",
@@ -18,11 +23,77 @@ COMPANY = {
 
 
 def _set_margins(doc: Document) -> None:
-    section = doc.sections[0]
-    section.top_margin = Mm(15)
-    section.bottom_margin = Mm(15)
-    section.left_margin = Mm(18)
-    section.right_margin = Mm(18)
+    for section in doc.sections:
+        section.top_margin = Mm(13)
+        section.bottom_margin = Mm(13)
+        section.left_margin = Mm(15)
+        section.right_margin = Mm(15)
+
+
+def _set_font(run, size: float = 10.0, bold: bool = False) -> None:
+    run.font.name = "Malgun Gothic"
+    run._element.rPr.rFonts.set(qn("w:eastAsia"), "맑은 고딕")
+    run.font.size = Pt(size)
+    run.bold = bold
+
+
+def _shade(cell, fill: str = "EDEDED") -> None:
+    tc_pr = cell._tc.get_or_add_tcPr()
+    shd = tc_pr.find(qn("w:shd"))
+    if shd is None:
+        shd = OxmlElement("w:shd")
+        tc_pr.append(shd)
+    shd.set(qn("w:fill"), fill)
+
+
+def _set_cell_text(cell, text: str, *, bold: bool = False, align=WD_ALIGN_PARAGRAPH.LEFT) -> None:
+    cell.text = ""
+    p = cell.paragraphs[0]
+    p.alignment = align
+    p.paragraph_format.space_after = Pt(0)
+    p.paragraph_format.space_before = Pt(0)
+    r = p.add_run(str(text or ""))
+    _set_font(r, 9.5, bold)
+    cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+
+
+def _add_info_table(doc: Document, rows: list[tuple[str, str]]) -> None:
+    table = doc.add_table(rows=0, cols=2)
+    table.style = "Table Grid"
+    table.autofit = False
+    for label, value in rows:
+        cells = table.add_row().cells
+        cells[0].width = Mm(42)
+        cells[1].width = Mm(138)
+        _shade(cells[0])
+        _set_cell_text(cells[0], label, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER)
+        _set_cell_text(cells[1], value)
+    doc.add_paragraph()
+
+
+def _add_heading(doc: Document, text: str) -> None:
+    p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(7)
+    p.paragraph_format.space_after = Pt(4)
+    r = p.add_run(text)
+    _set_font(r, 13, True)
+
+
+def _add_body(doc: Document, text: str) -> None:
+    p = doc.add_paragraph()
+    p.paragraph_format.line_spacing = 1.35
+    p.paragraph_format.space_after = Pt(3)
+    r = p.add_run(str(text or ""))
+    _set_font(r, 10.5)
+
+
+def _add_picture(doc: Document, label: str, data: bytes) -> None:
+    p = doc.add_paragraph()
+    r = p.add_run(label)
+    _set_font(r, 10, True)
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.add_picture(io.BytesIO(data), width=Mm(160))
+    doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
 
 def _save(doc: Document) -> bytes:
@@ -31,126 +102,63 @@ def _save(doc: Document) -> bytes:
     return buffer.getvalue()
 
 
-def build_main_report(
-    variety_name: str,
-    korean_name: str,
-    scientific_name: str,
+def build_compatible_docx(
+    *,
+    result_data: dict[str, Any],
     shipment: str,
-    characteristics: str,
-    breeding_process: str,
+    quarantine_number: str,
     overall_image: bytes,
     closeup_image: bytes,
-    origin_country: str = "네덜란드",
+    warnings: list[str] | None = None,
 ) -> bytes:
+    classification = result_data.get("classification") or {}
     doc = Document()
     _set_margins(doc)
 
-    title = doc.add_heading("품종 생산·수입판매 신고서 검토안", level=0)
+    title = doc.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title.paragraph_format.space_after = Pt(8)
+    r = title.add_run("품종 생산·수입판매 신고서 검토안")
+    _set_font(r, 17, True)
 
-    table = doc.add_table(rows=0, cols=2)
-    table.style = "Table Grid"
-    for label, value in [
+    _add_info_table(doc, [
         ("신고 구분", "수입 판매"),
         ("신고인", COMPANY["representative"]),
         ("법인 명칭", COMPANY["company_name"]),
         ("주소", COMPANY["address"]),
         ("전화번호", COMPANY["phone"]),
-        ("품종명", variety_name),
-        ("한글명", korean_name),
-        ("학명", scientific_name),
-        ("원산지", origin_country),
-        ("Shipment", shipment),
+        ("작물명", str(result_data.get("korean_name") or result_data.get("matched_name") or "")),
+        ("품종명", str(result_data.get("cultivar") or result_data.get("matched_name") or "")),
+        ("학명", str(result_data.get("scientific_name") or "")),
+        ("원산지", str(result_data.get("origin") or "")),
+        ("번식방법", str(result_data.get("propagation_method") or "")),
+        ("꽃 색상", str(classification.get("flower_color") or "")),
+        ("개화기", str(classification.get("flowering_period") or "")),
+        ("성숙 초장", str(classification.get("height") or "")),
+        ("Shipment", shipment or "미확인"),
+        ("검역합격번호", quarantine_number or "미첨부"),
         ("종자업 등록번호", COMPANY["seed_business_number"]),
-    ]:
-        cells = table.add_row().cells
-        cells[0].text = label
-        cells[1].text = str(value)
+    ])
 
-    doc.add_heading("품종의 특성", level=1)
-    doc.add_paragraph(characteristics)
+    _add_heading(doc, "품종의 특성 설명")
+    _add_body(doc, str(result_data.get("characteristics_draft") or ""))
+    _add_heading(doc, "품종육성 과정의 설명")
+    _add_body(doc, str(result_data.get("breeding_process_draft") or ""))
 
-    doc.add_heading("품종의 육성과정", level=1)
-    doc.add_paragraph(breeding_process)
+    if warnings:
+        _add_heading(doc, "검토 및 첨부 상태")
+        for item in warnings:
+            _add_body(doc, f"• {item}")
 
-    doc.add_heading("품종 사진", level=1)
-    doc.add_paragraph("사진 1. 품종 전체 모습")
-    doc.add_picture(io.BytesIO(overall_image), width=Mm(140))
-    doc.add_paragraph("사진 2. 꽃 근접 모습")
-    doc.add_picture(io.BytesIO(closeup_image), width=Mm(140))
+    doc.add_page_break()
+    _add_heading(doc, "품종의 사진")
+    _add_picture(doc, "사진 1. 품종 전체 모습", overall_image)
+    _add_picture(doc, "사진 2. 꽃·잎 근접 모습", closeup_image)
 
-    doc.add_paragraph(f"작성일: {date.today().isoformat()}")
-    return _save(doc)
-
-
-def build_characteristics_document(
-    variety_name: str,
-    korean_name: str,
-    scientific_name: str,
-    characteristics: str,
-    overall_image: bytes,
-    closeup_image: bytes,
-) -> bytes:
-    doc = Document()
-    _set_margins(doc)
-    doc.add_heading("품종 특성 설명", level=0)
-    doc.add_paragraph(f"품종명: {variety_name}")
-    doc.add_paragraph(f"한글명: {korean_name}")
-    doc.add_paragraph(f"학명: {scientific_name}")
-    doc.add_heading("주요 특성", level=1)
-    doc.add_paragraph(characteristics)
-    doc.add_heading("전체 모습", level=1)
-    doc.add_picture(io.BytesIO(overall_image), width=Mm(140))
-    doc.add_heading("꽃 근접 모습", level=1)
-    doc.add_picture(io.BytesIO(closeup_image), width=Mm(140))
-    return _save(doc)
-
-
-def build_breeding_document(
-    variety_name: str,
-    korean_name: str,
-    breeding_process: str,
-    origin_country: str = "네덜란드",
-) -> bytes:
-    doc = Document()
-    _set_margins(doc)
-    doc.add_heading("품종 육성과정 설명", level=0)
-    doc.add_paragraph(f"식물명: {korean_name}")
-    doc.add_paragraph(f"품종명: {variety_name}")
-    doc.add_paragraph(f"종자 또는 묘목 생산지: {origin_country}")
-    doc.add_heading("육성과정", level=1)
-    doc.add_paragraph(breeding_process)
-    return _save(doc)
-
-
-def build_sample_pledge_document(
-    variety_name: str,
-    korean_name: str,
-) -> bytes:
-    doc = Document()
-    _set_margins(doc)
-    title = doc.add_heading("품종생산·수입판매신고 시료제출 확약서", level=0)
-    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-    table = doc.add_table(rows=0, cols=2)
-    table.style = "Table Grid"
-    for label, value in [
-        ("신고인 성명", COMPANY["representative"]),
-        ("주소", COMPANY["address"]),
-        ("법인명칭", COMPANY["company_name"]),
-        ("작물명", korean_name),
-        ("품종명", variety_name),
-    ]:
-        cells = table.add_row().cells
-        cells[0].text = label
-        cells[1].text = value
-
-    doc.add_paragraph(
-        "상기 품종은 영양번식작물에 해당하므로 신고 시 종자시료를 자체 보관하고, "
-        "관계 기관에서 시료 제출을 요구할 때에는 지체 없이 제출할 것을 확약합니다."
-    )
-    doc.add_paragraph(f"{date.today().year}년 {date.today().month}월 {date.today().day}일")
-    doc.add_paragraph(f"신고인: {COMPANY['representative']} (인)")
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    r = p.add_run(f"작성일: {date.today().year}년 {date.today().month}월 {date.today().day}일")
+    _set_font(r, 9.5)
     return _save(doc)
 
 
@@ -175,10 +183,10 @@ def build_pdf_summary(
     for line in [
         f"Variety: {variety_name}",
         f"Scientific name: {scientific_name}",
-        f"Shipment: {shipment}",
-        f"Invoice source: {source_invoice}",
-        f"Quarantine source: {quarantine_file}",
-        "Package requires two photographs: overall and flower close-up.",
+        f"Shipment: {shipment or 'Not found'}",
+        f"Invoice source: {source_invoice or 'Not attached'}",
+        f"Quarantine source: {quarantine_file or 'Not attached'}",
+        "HWPX and compatible DOCX are included when available.",
     ]:
         c.drawString(45, y, line[:110])
         y -= 16
