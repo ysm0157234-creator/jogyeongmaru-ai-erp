@@ -111,9 +111,12 @@ function AIResult({ draft, setDraft, setError }) {
     <section className="panel ai-result-header"><div><p className="eyebrow">AI DRAFT #{draft.id} · {form.build_version || "버전 확인 불가"}</p>{editing?<div className="edit-title-grid"><input value={form.matched_name} onChange={e=>change(["matched_name"],e.target.value)}/><input value={form.korean_name} onChange={e=>change(["korean_name"],e.target.value)}/></div>:<><h2>{form.matched_name}</h2><p className="muted">{form.korean_name}</p></>}</div><span className="status pending">{draft.status}</span></section>
     <section className="ai-summary-grid">
       <Card editing={editing} label="학명" value={form.scientific_name} onChange={v=>change(["scientific_name"],v)}/>
-      <Card editing={editing} label="꽃 색상" value={form.classification.flower_color} onChange={v=>change(["classification","flower_color"],v)}/>
-      <Card editing={editing} label="개화기" value={form.classification.flowering_period} onChange={v=>change(["classification","flowering_period"],v)}/>
-      <Card editing={editing} label="초장" value={form.classification.height} onChange={v=>change(["classification","height"],v)}/>
+      <Card editing={editing} label="꽃 색상" value={form.classification?.flower_color || ""} onChange={v=>change(["classification","flower_color"],v)}/>
+      <Card editing={editing} label="개화기" value={form.classification?.flowering_period || ""} onChange={v=>change(["classification","flowering_period"],v)}/>
+      <Card editing={editing} label="초장" value={form.classification?.height || ""} onChange={v=>change(["classification","height"],v)}/>
+      <Card editing={editing} label="원산지" value={form.origin || ""} onChange={v=>change(["origin"],v)}/>
+      <Card editing={editing} label="번식방법" value={form.propagation_method || ""} onChange={v=>change(["propagation_method"],v)}/>
+      <Card editing={editing} label="주요 용도" value={form.classification?.use || ""} onChange={v=>change(["classification","use"],v)}/>
     </section>
     <section className="panel"><h2>AI 작성 초안</h2><div className="draft-text-grid"><article><h3>품종의 특성 설명</h3><textarea rows="7" disabled={!editing} value={form.characteristics_draft} onChange={e=>change(["characteristics_draft"],e.target.value)}/></article><article><h3>품종의 육성과정</h3><textarea rows="7" disabled={!editing} value={form.breeding_process_draft} onChange={e=>change(["breeding_process_draft"],e.target.value)}/></article></div></section>
     <Photo title="사진 1 · 품종 전체 모습" description="식물 또는 꽃대 전체 형태가 보이는 사진" images={overall} selected={form.selected_images?.overall} onSelect={id=>select("overall",id)}/>

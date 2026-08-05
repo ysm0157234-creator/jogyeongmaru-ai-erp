@@ -75,9 +75,9 @@ def build_main_report(
 
     doc.add_heading("품종 사진", level=1)
     doc.add_paragraph("사진 1. 품종 전체 모습")
-    doc.add_picture(io.BytesIO(overall_image), width=Mm(165))
+    doc.add_picture(io.BytesIO(overall_image), width=Mm(140))
     doc.add_paragraph("사진 2. 꽃 근접 모습")
-    doc.add_picture(io.BytesIO(closeup_image), width=Mm(165))
+    doc.add_picture(io.BytesIO(closeup_image), width=Mm(140))
 
     doc.add_paragraph(f"작성일: {date.today().isoformat()}")
     return _save(doc)
@@ -100,9 +100,9 @@ def build_characteristics_document(
     doc.add_heading("주요 특성", level=1)
     doc.add_paragraph(characteristics)
     doc.add_heading("전체 모습", level=1)
-    doc.add_picture(io.BytesIO(overall_image), width=Mm(165))
+    doc.add_picture(io.BytesIO(overall_image), width=Mm(140))
     doc.add_heading("꽃 근접 모습", level=1)
-    doc.add_picture(io.BytesIO(closeup_image), width=Mm(165))
+    doc.add_picture(io.BytesIO(closeup_image), width=Mm(140))
     return _save(doc)
 
 

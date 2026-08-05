@@ -5,6 +5,7 @@ import json
 import re
 import time
 import zipfile
+from pathlib import Path
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -14,7 +15,8 @@ from PIL import Image, UnidentifiedImageError
 from app.core.config import get_settings
 from app.services.drive_service import DriveFile, FOLDER_MIME, GoogleDriveService
 from app.services.invoice_processor import create_invoice_extract_xlsx, extract_invoice_pdf_pages, filter_invoice_xlsx
-from app.services.report_generator import build_breeding_document, build_characteristics_document, build_main_report, build_pdf_summary, build_sample_pledge_document
+from app.services.report_generator import build_pdf_summary
+from app.services.hwp_template_service import HwpTemplateError, build_hwpx_report
 from app.services.shipment_parser import find_variety_in_workbook
 
 
@@ -28,6 +30,14 @@ def norm(value: str) -> str:
 
 def safe(value: str) -> str:
     return re.sub(r'[\\/:*?"<>|]+', "_", str(value or "")).strip() or "report"
+
+
+def quarantine_number_from_name(name: str) -> str:
+    text = str(name or "")
+    match = re.search(r"(?:제\s*)?([0-9]{2,4}[-_][0-9]{4,})", text)
+    if match:
+        return "제 " + match.group(1).replace("_", "-") + " 호"
+    return ""
 
 
 def is_folder(item: DriveFile) -> bool:
@@ -253,16 +263,50 @@ def run_workflow(variety_name: str, draft_data: dict) -> tuple[bytes, dict]:
     if not characteristics or not breeding:
         raise RequiredFileMissingError("품종 특성 설명 또는 육성과정이 비어 있습니다.")
 
-    invoice_output, invoice_name = process_invoice(invoice, invoice_data, variety_name, match.shipment, match.values)
-    main = build_main_report(final_name, korean_name, scientific_name, match.shipment, characteristics, breeding, overall_image, closeup_image)
-    characteristics_doc = build_characteristics_document(final_name, korean_name, scientific_name, characteristics, overall_image, closeup_image)
-    breeding_doc = build_breeding_document(final_name, korean_name, breeding)
-    pledge = build_sample_pledge_document(final_name, korean_name)
-    summary = build_pdf_summary(final_name, scientific_name, match.shipment, invoice.name, quarantine.name)
+    invoice_output, invoice_name = process_invoice(
+        invoice, invoice_data, variety_name, match.shipment, match.values
+    )
+
+    template_path = (
+        Path(__file__).resolve().parent.parent
+        / "templates"
+        / "plant_import_report_template.hwpx"
+    )
+    now = datetime.now()
+    report_date_spaced = f"{now.year}년     {now.month}월     {now.day}일"
+    quarantine_number = quarantine_number_from_name(quarantine.name)
+
+    try:
+        hwpx_report = build_hwpx_report(
+            template_path=template_path,
+            result_data=draft_data,
+            quarantine_number=quarantine_number,
+            report_date_spaced=report_date_spaced,
+            overall_image=overall_image,
+            closeup_image=closeup_image,
+            company={
+                "representative": "황수영",
+                "birth_date": "1985. 5. 15.",
+                "address": "경기도 평택시 진위면 서촌로 38-9",
+                "short_address": "경기 평택시 진위면 서촌로 38-9",
+                "company_name": "농업회사법인 주식회사 조경마루",
+                "phone": "010-9377-3058",
+                "seed_business_number": "제10-평택-2023-30-01호",
+            },
+        )
+    except HwpTemplateError as exc:
+        raise RequiredFileMissingError(f"한글 신고서 생성 실패: {exc}") from exc
+
+    summary = build_pdf_summary(
+        final_name, scientific_name, match.shipment, invoice.name, quarantine.name
+    )
 
     manifest = {
+        "build_version": "v15.0-hwpx-complete",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "variety": variety_name,
+        "matched_name": final_name,
+        "scientific_name": scientific_name,
         "shipment": match.shipment,
         "shipment_sheet": match.sheet_name,
         "shipment_row": match.row_number,
@@ -271,6 +315,8 @@ def run_workflow(variety_name: str, draft_data: dict) -> tuple[bytes, dict]:
         "container_folder": container.name,
         "invoice": invoice.name,
         "quarantine": quarantine.name,
+        "quarantine_number": quarantine_number,
+        "report_format": "HWPX original template",
         "photos": {
             "overall": overall_candidate,
             "closeup": closeup_candidate,
@@ -280,14 +326,17 @@ def run_workflow(variety_name: str, draft_data: dict) -> tuple[bytes, dict]:
     output = io.BytesIO()
     base = safe(variety_name)
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(f"{base}/01_생산수입판매신고서_검토안.docx", main)
-        archive.writestr(f"{base}/02_품종특성설명.docx", characteristics_doc)
-        archive.writestr(f"{base}/03_품종육성과정.docx", breeding_doc)
-        archive.writestr(f"{base}/04_시료제출확약서.docx", pledge)
-        archive.writestr(f"{base}/05_{safe(quarantine.name)}", quarantine_data)
+        archive.writestr(
+            f"{base}/01_품종_생산수입판매_신고서_검토안.hwpx",
+            hwpx_report,
+        )
+        archive.writestr(f"{base}/02_{safe(quarantine.name)}", quarantine_data)
         archive.writestr(f"{base}/{invoice_name}", invoice_output)
-        archive.writestr(f"{base}/07_품종전체사진.jpg", overall_image)
-        archive.writestr(f"{base}/08_꽃근접사진.jpg", closeup_image)
-        archive.writestr(f"{base}/09_처리요약.pdf", summary)
-        archive.writestr(f"{base}/manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2, default=str))
+        archive.writestr(f"{base}/04_품종전체사진.jpg", overall_image)
+        archive.writestr(f"{base}/05_꽃근접사진.jpg", closeup_image)
+        archive.writestr(f"{base}/06_처리요약.pdf", summary)
+        archive.writestr(
+            f"{base}/manifest.json",
+            json.dumps(manifest, ensure_ascii=False, indent=2, default=str),
+        )
     return output.getvalue(), manifest

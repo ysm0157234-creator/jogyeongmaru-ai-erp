@@ -21,7 +21,7 @@ from .deps import get_current_user
 
 router = APIRouter(prefix="/api/ai-reports", tags=["ai-reports"])
 
-BUILD_VERSION = "v13.0-complete-profile"
+BUILD_VERSION = "v15.0-hwpx-complete"
 
 
 def get_owned_draft(db: Session, draft_id: int, user: User) -> AIDraft:
@@ -61,6 +61,7 @@ def drive_status(_: User = Depends(get_current_user)):
         "SHIPMENT_OVERVIEW_FILE_ID",
         "IMPORT_2025_FOLDER_ID",
         "SERPER_API_KEY",
+        "GEMINI_API_KEY",
     )
     missing = [
         key
@@ -75,6 +76,7 @@ def drive_status(_: User = Depends(get_current_user)):
                 "SHIPMENT_OVERVIEW_FILE_ID",
                 "IMPORT_2025_FOLDER_ID",
                 "SERPER_API_KEY",
+                "GEMINI_API_KEY",
             )
         ),
         "drive_configured": all(
@@ -96,8 +98,7 @@ def drive_status(_: User = Depends(get_current_user)):
         "build_version": BUILD_VERSION,
         "message": (
             (
-                f"Google Drive·검색 연결 완료 / "
-                f"Gemini는 선택 사용 ({BUILD_VERSION})"
+                f"Google Drive·Serper·Gemini·HWPX 연결 완료 ({BUILD_VERSION})"
             )
             if not missing
             else "누락된 Render 환경변수: " + ", ".join(missing)
