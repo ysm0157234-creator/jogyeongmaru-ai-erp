@@ -12,17 +12,17 @@ from app.services.gemini_service import (
 from app.services.google_search_service import (
     GoogleSearchError,
     GoogleSearchService,
-    ImageSearchResult,
     WebSearchResult,
 )
 from app.services.wikimedia_service import search_commons_images
+from app.services.web_image_service import PageImageResult, extract_page_images
 
 
 class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v16.0-single-gemini-fallback"
+BUILD_VERSION = "v17.0-web-image-single-gemini"
 
 
 def _norm(value: Any) -> str:
@@ -248,6 +248,117 @@ def _image_candidates(
     )
 
 
+
+
+def _page_image_candidates(
+    images: list[PageImageResult],
+    role: str,
+    prefix: str,
+    variety_name: str,
+) -> list[dict[str, Any]]:
+    terms = _terms(variety_name)
+    overall_words = (
+        "whole plant", "habit", "shrub", "tree", "specimen",
+        "garden", "landscape", "plant habit", "entire plant",
+        "전체", "수형", "전경",
+    )
+    closeup_words = (
+        "flower", "bloom", "blossom", "close up", "close-up",
+        "foliage", "leaf", "catkin", "fruit", "berry", "bud",
+        "꽃", "잎", "근접", "열매",
+    )
+    role_words = overall_words if role == "overall" else closeup_words
+    opposite_words = closeup_words if role == "overall" else overall_words
+    output: list[dict[str, Any]] = []
+
+    for index, image in enumerate(images, 1):
+        searchable = " ".join((
+            image.title, image.alt_text, image.context_url,
+            image.display_link, image.image_url,
+        ))
+        relevance = _score(searchable, terms)
+        lowered = searchable.lower()
+        role_score = sum(8 for word in role_words if word in lowered)
+        opposite_penalty = sum(3 for word in opposite_words if word in lowered)
+        dimension_score = 0
+        if image.width and image.height:
+            pixels = image.width * image.height
+            if pixels >= 1_000_000:
+                dimension_score = 12
+            elif pixels >= 400_000:
+                dimension_score = 7
+            elif pixels >= 150_000:
+                dimension_score = 3
+        # 품종명이 이미지 문자열에 없더라도 해당 페이지가 품종 검색 결과이면 허용
+        total = relevance + role_score - opposite_penalty + dimension_score + _domain_priority(image.context_url)
+        if total < 35:
+            continue
+        output.append({
+            "id": f"{prefix}-web-{index}",
+            "title": image.title or (
+                f"{variety_name} 전체 모습" if role == "overall"
+                else f"{variety_name} 근접 모습"
+            ),
+            "role": role,
+            "preview_url": image.preview_url or image.image_url,
+            "download_url": image.image_url,
+            "backup_url": image.preview_url,
+            "source_url": image.context_url,
+            "source": image.display_link or "공식 웹페이지",
+            "license": "제출 전 원본 페이지의 이용 조건을 확인하세요.",
+            "recommended": False,
+            "research_query": variety_name,
+            "relevance_score": total,
+            "width": image.width,
+            "height": image.height,
+            "source_type": image.source_type,
+        })
+
+    return sorted(
+        output,
+        key=lambda item: (-int(item.get("relevance_score", 0)), item["title"].lower()),
+    )
+
+
+def _collect_web_page_images(
+    search: GoogleSearchService,
+    variety_name: str,
+    role: str,
+    base_sources: list[WebSearchResult],
+) -> list[PageImageResult]:
+    queries = (
+        (
+            f'{variety_name} whole plant habit specimen',
+            f'{variety_name} nursery plant habit',
+            f'{variety_name} botanical garden',
+        )
+        if role == "overall"
+        else (
+            f'{variety_name} flower close up',
+            f'{variety_name} bloom foliage leaf',
+            f'{variety_name} botanical detail',
+        )
+    )
+    pages: list[WebSearchResult] = list(base_sources[:12])
+    for query in queries:
+        try:
+            pages.extend(search.search_web(query, num=8))
+        except GoogleSearchError:
+            continue
+    pages = _dedupe_web(pages, variety_name, limit=20)
+
+    output: list[PageImageResult] = []
+    seen_pages: set[str] = set()
+    for page in pages:
+        if page.link in seen_pages:
+            continue
+        seen_pages.add(page.link)
+        output.extend(extract_page_images(page.link, max_images=12))
+        if len(output) >= 80:
+            break
+    return output
+
+
 def _commons_candidates(
     variety_name: str,
     role: str,
@@ -257,15 +368,15 @@ def _commons_candidates(
 
     queries = (
         (
-            f'"{variety_name}" whole plant',
-            f'"{variety_name}" habit',
+            f'{variety_name} whole plant',
+            f'{variety_name} habit',
         )
         if role == "overall"
         else (
-            f'"{variety_name}" close up',
-            f'"{variety_name}" flower',
-            f'"{variety_name}" foliage',
-            f'"{variety_name}" catkin',
+            f'{variety_name} close up',
+            f'{variety_name} flower',
+            f'{variety_name} foliage',
+            f'{variety_name} catkin',
         )
     )
 
@@ -599,13 +710,13 @@ def _additional_queries(
     name: str,
 ) -> tuple[str, ...]:
     return (
-        f'"{name}" accepted scientific name authority',
-        f'"{name}" full botanical name author citation',
-        f'"{name}" flower colour bloom months mature height cm',
-        f'"{name}" RHS height flowering colour',
-        f'"{name}" Kew accepted name',
-        f'"{name}" Missouri Botanical Garden',
-        f'"{name}" propagation origin breeder',
+        f'{name} accepted scientific name authority',
+        f'{name} full botanical name author citation',
+        f'{name} flower colour bloom months mature height cm',
+        f'{name} RHS height flowering colour',
+        f'{name} Kew accepted name',
+        f'{name} Missouri Botanical Garden',
+        f'{name} propagation origin breeder',
     )
 
 
@@ -741,13 +852,13 @@ def research_variety(
     web_results: list[WebSearchResult] = []
 
     queries = (
-        f'"{name}" botanical profile characteristics',
-        f'"{name}" scientific name authority',
-        f'"{name}" flower colour flowering period height',
-        f'"{name}" origin propagation breeder',
-        f'"{name}" RHS',
-        f'"{name}" Kew',
-        f'"{name}" Missouri Botanical Garden',
+        f'{name} botanical profile characteristics',
+        f'{name} scientific name authority',
+        f'{name} flower colour flowering period height',
+        f'{name} origin propagation breeder',
+        f'{name} RHS',
+        f'{name} Kew',
+        f'{name} Missouri Botanical Garden',
     )
 
     try:
@@ -917,52 +1028,51 @@ def research_variety(
         generated
     )
 
-    try:
-        overall_search = (
-            search.search_images(
-                f'"{name}" whole plant habit botanical',
-                num=14,
-            )
-        )
+    # Serper 무료 계정에서 차단되는 /images 엔드포인트는 사용하지 않는다.
+    # 일반 웹검색으로 공식 페이지를 찾고, 페이지의 og:image/JSON-LD/img와
+    # Wikimedia Commons에서 전체 모습과 근접 사진을 각각 수집한다.
+    overall_page_images = _collect_web_page_images(
+        search, name, "overall", sources
+    )
+    closeup_page_images = _collect_web_page_images(
+        search, name, "closeup", sources
+    )
 
-        closeup_search = (
-            search.search_images(
-                f'"{name}" close up flower foliage',
-                num=14,
-            )
-        )
-    except GoogleSearchError as exc:
-        raise PlantResearchError(
-            f"Serper 이미지 검색 실패: {exc}"
-        ) from exc
-
+    scientific_query = generated.get("scientific_name") or name
     overall = _dedupe_images(
-        _image_candidates(
-            overall_search,
-            "overall",
-            "overall",
-            name,
+        _page_image_candidates(
+            overall_page_images, "overall", "overall", name
         )
-        + _commons_candidates(
-            name,
-            "overall",
-            "overall",
-        )
+        + _commons_candidates(name, "overall", "overall")
+        + (
+            _commons_candidates(scientific_query, "overall", "overall-scientific")
+            if _norm(scientific_query) != _norm(name) else []
+        ),
+        limit=10,
     )
 
     closeup = _dedupe_images(
-        _image_candidates(
-            closeup_search,
-            "closeup",
-            "closeup",
-            name,
+        _page_image_candidates(
+            closeup_page_images, "closeup", "closeup", name
         )
-        + _commons_candidates(
-            name,
-            "closeup",
-            "closeup",
-        )
+        + _commons_candidates(name, "closeup", "closeup")
+        + (
+            _commons_candidates(scientific_query, "closeup", "closeup-scientific")
+            if _norm(scientific_query) != _norm(name) else []
+        ),
+        limit=10,
     )
+
+    # 전체 모습과 근접 모습에 같은 원본 사진이 동시에 선택되지 않도록 제거한다.
+    if overall:
+        overall_first_url = overall[0].get("download_url") or overall[0].get("preview_url")
+        filtered_closeup = [
+            item for item in closeup
+            if (item.get("download_url") or item.get("preview_url")) != overall_first_url
+        ]
+        if filtered_closeup:
+            closeup = filtered_closeup
+            closeup[0]["recommended"] = True
 
     if not overall:
         raise PlantResearchError(
@@ -1090,10 +1200,7 @@ def research_variety(
         ],
         "research_provider": {
             "web": "Serper Google Search",
-            "images": (
-                "Serper Image Search + "
-                "Wikimedia Commons"
-            ),
+            "images": "공식 웹페이지 이미지 + Wikimedia Commons",
             "generation": (
                 f"Gemini {gemini_model}" if gemini_model else "Serper 검색 기반 자동 초안"
             ),

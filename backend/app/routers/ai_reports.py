@@ -21,7 +21,7 @@ from .deps import get_current_user
 
 router = APIRouter(prefix="/api/ai-reports", tags=["ai-reports"])
 
-BUILD_VERSION = "v16.0-single-gemini-fallback"
+BUILD_VERSION = "v17.0-web-image-single-gemini"
 
 
 def get_owned_draft(db: Session, draft_id: int, user: User) -> AIDraft:

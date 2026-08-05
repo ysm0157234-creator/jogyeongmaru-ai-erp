@@ -41,15 +41,14 @@ class ImageSearchResult:
 
 class GoogleSearchService:
     """
-    v12 검색 서비스.
+    v17 검색 서비스.
 
-    기존 plant_research_service의 import와 호출부를 바꾸지 않기 위해
-    클래스 이름은 GoogleSearchService로 유지한다.
-    실제 요청은 Serper의 웹 검색과 이미지 검색 API로 보낸다.
+    Serper 일반 웹검색만 사용한다. 무료 계정에서 차단될 수 있는
+    Serper 이미지 API는 호출하지 않는다. 사진은 웹페이지와
+    Wikimedia Commons에서 별도로 수집한다.
     """
 
     SEARCH_URL = "https://google.serper.dev/search"
-    IMAGES_URL = "https://google.serper.dev/images"
 
     def __init__(self) -> None:
         settings = get_settings()
@@ -81,7 +80,7 @@ class GoogleSearchService:
                 "X-API-KEY": self.api_key,
                 "Content-Type": "application/json",
                 "Accept": "application/json",
-                "User-Agent": "Jogyeongmaru-AI-ERP/12.0",
+                "User-Agent": "Jogyeongmaru-AI-ERP/17.0",
             },
             method="POST",
         )
@@ -223,49 +222,7 @@ class GoogleSearchService:
         *,
         num: int = 10,
     ) -> list[ImageSearchResult]:
-        result = self._request(
-            self.IMAGES_URL,
-            {
-                "q": query,
-                "num": max(
-                    1,
-                    min(num, 20),
-                ),
-            },
+        raise GoogleSearchError(
+            "v17에서는 Serper 이미지 API를 사용하지 않습니다. "
+            "공식 웹페이지 이미지와 Wikimedia Commons를 사용하세요."
         )
-
-        output: list[ImageSearchResult] = []
-
-        for item in result.get("images", []) or []:
-            original = str(
-                item.get("imageUrl", "")
-            ).strip()
-
-            thumbnail = str(
-                item.get("thumbnailUrl", "")
-            ).strip()
-
-            if not original and not thumbnail:
-                continue
-
-            output.append(
-                ImageSearchResult(
-                    title=str(
-                        item.get("title", "")
-                    ).strip(),
-                    image_url=original,
-                    thumbnail_url=thumbnail,
-                    context_url=str(
-                        item.get("link", "")
-                    ).strip(),
-                    display_link=str(
-                        item.get("domain")
-                        or item.get("source")
-                        or ""
-                    ).strip(),
-                    width=item.get("imageWidth"),
-                    height=item.get("imageHeight"),
-                )
-            )
-
-        return output[: max(1, min(num, 20))]
