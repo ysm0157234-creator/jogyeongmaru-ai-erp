@@ -21,7 +21,7 @@ from .deps import get_current_user
 
 router = APIRouter(prefix="/api/ai-reports", tags=["ai-reports"])
 
-BUILD_VERSION = "v12.0-serper"
+BUILD_VERSION = "v13.0-complete-profile"
 
 
 def get_owned_draft(db: Session, draft_id: int, user: User) -> AIDraft:

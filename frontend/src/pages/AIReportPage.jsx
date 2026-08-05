@@ -122,4 +122,24 @@ function AIResult({ draft, setDraft, setError }) {
   </div>;
 }
 function Card({editing,label,value,onChange}){return <article className="ai-summary-card"><span>{label}</span>{editing?<input value={value} onChange={e=>onChange(e.target.value)}/>:<strong>{value}</strong>}</article>}
-function Photo({title,description,images,selected,onSelect}){return <section className="panel"><div className="ai-section-title"><ImageIcon size={20}/><h2>{title}</h2></div><p className="muted">{description}</p><div className="image-candidate-grid">{images.map(image=><button type="button" key={image.id} className={`image-candidate ${selected===image.id?"selected":""}`} onClick={()=>onSelect(image.id)}><img src={image.preview_url} alt={image.title}/><div className="image-candidate-body"><strong>{image.title}</strong><span>{image.source}</span><div className="image-selected-label">{selected===image.id&&<CheckCircle2 size={16}/>} {selected===image.id?"이 사진 사용":"선택"}</div></div></button>)}</div></section>}
+function Photo({title,description,images,selected,onSelect}) {
+  const [preview, setPreview] = useState(null);
+  useEffect(() => {
+    function onKeyDown(event) { if (event.key === "Escape") setPreview(null); }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+  return <>
+    <section className="panel"><div className="ai-section-title"><ImageIcon size={20}/><h2>{title}</h2></div><p className="muted">{description}</p>
+      <div className="image-candidate-grid">{images.map(image=><article key={image.id} className={`image-candidate ${selected===image.id?"selected":""}`}>
+        <button type="button" className="image-preview-button" onClick={()=>setPreview(image)}><img src={image.preview_url} alt={image.title}/><span className="image-zoom-label">클릭해서 크게 보기</span></button>
+        <div className="image-candidate-body"><strong>{image.title}</strong><span>{image.source}</span><button type="button" className={`image-select-button ${selected===image.id?"selected":""}`} onClick={()=>onSelect(image.id)}>{selected===image.id&&<CheckCircle2 size={16}/>} {selected===image.id?"이 사진 사용 중":"이 사진 선택"}</button></div>
+      </article>)}</div>
+    </section>
+    {preview&&<div className="image-lightbox" role="dialog" aria-modal="true" onClick={()=>setPreview(null)}><div className="image-lightbox-content" onClick={event=>event.stopPropagation()}>
+      <button type="button" className="image-lightbox-close" onClick={()=>setPreview(null)}><X size={24}/></button>
+      <img src={preview.download_url||preview.preview_url} alt={preview.title} onError={event=>{if(event.currentTarget.src!==preview.preview_url)event.currentTarget.src=preview.preview_url;}}/>
+      <div className="image-lightbox-info"><strong>{preview.title}</strong><span>{preview.source}</span>{preview.source_url&&<a href={preview.source_url} target="_blank" rel="noreferrer">원본 출처 열기</a>}<button type="button" className="primary-button" onClick={()=>{onSelect(preview.id);setPreview(null);}}>이 사진 사용</button></div>
+    </div></div>}
+  </>;
+}

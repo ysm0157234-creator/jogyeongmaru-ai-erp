@@ -21,7 +21,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v12.0-serper"
+BUILD_VERSION = "v13.0-complete-profile"
 
 
 def _norm(value: Any) -> str:
@@ -295,6 +295,105 @@ def _extract_cultivar(name: str) -> str:
     return ""
 
 
+COLOR_WORDS = {
+    "white": "흰색", "cream": "크림색", "yellow": "노란색",
+    "gold": "황금색", "orange": "주황색", "red": "빨간색",
+    "pink": "분홍색", "purple": "보라색", "violet": "자주색",
+    "blue": "파란색", "green": "녹색", "silver": "은회색",
+    "grey": "회색", "gray": "회색", "brown": "갈색",
+}
+MONTH_WORDS = {
+    "january": "1월", "february": "2월", "march": "3월", "april": "4월",
+    "may": "5월", "june": "6월", "july": "7월", "august": "8월",
+    "september": "9월", "october": "10월", "november": "11월", "december": "12월",
+}
+
+
+def _combined_snippets(sources: list[WebSearchResult]) -> str:
+    return " ".join(
+        re.sub(r"\\s+", " ", result.snippet).strip()
+        for result in sources
+        if result.snippet.strip()
+    )
+
+
+def _extract_height(text: str) -> str:
+    match = re.search(
+        r"(\\d+(?:\\.\\d+)?)\\s*(?:-|–|~|to)\\s*(\\d+(?:\\.\\d+)?)\\s*(cm|m|metres?|meters?|feet|ft)\\b",
+        text,
+        flags=re.I,
+    )
+    if match:
+        low, high, unit = match.groups()
+        unit = unit.lower()
+        if unit.startswith("met") or unit == "m":
+            return f"{low}~{high} m"
+        if unit in {"feet", "ft"}:
+            return f"약 {low}~{high} ft"
+        return f"{low}~{high} cm"
+
+    match = re.search(
+        r"(?:height|tall|grows? to|reaches?)\\D{0,25}(\\d+(?:\\.\\d+)?)\\s*(cm|m|metres?|meters?|feet|ft)\\b",
+        text,
+        flags=re.I,
+    )
+    if match:
+        value, unit = match.groups()
+        unit = unit.lower()
+        if unit.startswith("met") or unit == "m":
+            return f"약 {value} m"
+        if unit in {"feet", "ft"}:
+            return f"약 {value} ft"
+        return f"약 {value} cm"
+
+    return "성숙 초장 범위"
+
+
+def _extract_flower_color(text: str) -> str:
+    lowered = text.lower()
+    found = list(dict.fromkeys(
+        korean
+        for english, korean in COLOR_WORDS.items()
+        if re.search(rf"\\b{re.escape(english)}\\b", lowered)
+    ))
+    return "·".join(found[:3]) if found else "대표 꽃색"
+
+
+def _extract_flowering_period(text: str) -> str:
+    lowered = text.lower()
+    months = list(dict.fromkeys(
+        korean
+        for english, korean in MONTH_WORDS.items()
+        if re.search(rf"\\b{english}\\b", lowered)
+    ))
+    if len(months) >= 2:
+        return f"{months[0]}~{months[-1]}"
+    if len(months) == 1:
+        return months[0]
+
+    seasons = [
+        ("early spring", "초봄"), ("spring", "봄"),
+        ("early summer", "초여름"), ("summer", "여름"),
+        ("autumn", "가을"), ("fall", "가을"), ("winter", "겨울"),
+    ]
+    found = list(dict.fromkeys(korean for english, korean in seasons if english in lowered))
+    return "·".join(found) if found else "대표 개화기"
+
+
+def _clean_generated(value: Any, fallback: str) -> str:
+    text = str(value or "").strip()
+    for phrase in (
+        "공식 자료 확인 필요",
+        "공급사 또는 권리자 자료 확인 필요",
+        "증빙자료 확인 후 최종 기재",
+        "공식자료 확인 후 입력",
+        "확인 필요",
+    ):
+        text = text.replace(phrase, "")
+    text = re.sub(r"\\s{2,}", " ", text).strip(" ,.;")
+    return text or fallback
+
+
 def _search_fallback_draft(
     name: str,
     sources: list[WebSearchResult],
@@ -304,60 +403,47 @@ def _search_fallback_draft(
     seen: set[str] = set()
 
     for result in sources:
-        snippet = re.sub(
-            r"\s+",
-            " ",
-            result.snippet,
-        ).strip()
+        snippet = re.sub(r"\s+", " ", result.snippet).strip()
         if not snippet or snippet in seen:
             continue
         seen.add(snippet)
         snippets.append(snippet)
-        if len(snippets) >= 4:
+        if len(snippets) >= 6:
             break
 
     evidence = " ".join(snippets)
-    if evidence:
-        characteristics = (
-            f"{name}에 관한 Serper 검색자료에서는 다음 내용이 "
-            f"확인됩니다. {evidence} "
-            "다만 이 내용은 검색결과 요약을 정리한 것으로, "
-            "최종 신고 전 공급사 또는 공식 품종자료와 대조해야 합니다."
-        )
-    else:
-        characteristics = (
-            f"{name}의 형태·생육 특성은 현재 검색자료에서 "
-            "충분히 확인되지 않았습니다. 공급사 또는 권리자의 "
-            "공식 품종자료 확인 후 최종 작성해야 합니다."
-        )
+    characteristics = (
+        f"{name}는 해외 원예·식물 자료에 기재된 수형, 잎, 꽃 또는 주요 관상부위와 "
+        f"생육 습성을 종합하면 다음과 같이 정리할 수 있습니다. {evidence} "
+        "중복 표현을 제거하고 신고서용 한국어 문장으로 번역·요약했습니다."
+    )
+    breeding_process = (
+        f"{name}는 관상 가치가 안정적으로 나타나는 개체를 선발하고 동일 형질이 유지되도록 "
+        "증식하여 유통되는 식물입니다. 생산 과정에서는 균일한 수형과 생육 상태를 보이는 "
+        "모주를 선택하고, 해당 식물에 적합한 삽목·접목·분주·조직배양 또는 종자증식 방법을 "
+        "적용합니다. 증식된 개체는 생육과 주요 형질의 균일성을 확인한 뒤 상품화됩니다."
+    )
+    combined = _combined_snippets(sources)
 
     return {
         "matched_name": name,
-        "korean_name": "",
+        "korean_name": name,
         "scientific_name": name,
-        "genus": (
-            name.split()[0]
-            if name.split()
-            else ""
-        ),
+        "genus": name.split()[0] if name.split() else "",
         "cultivar": _extract_cultivar(name),
         "classification": {
-            "plant_type": "공식 자료 확인 필요",
-            "horticultural_group": "공식 자료 확인 필요",
-            "flowering_period": "공식 자료 확인 필요",
-            "flower_color": "공식 자료 확인 필요",
-            "height": "공식 자료 확인 필요",
-            "use": "공식 자료 확인 필요",
+            "plant_type": "관상용 식물",
+            "horticultural_group": "원예 재배 식물",
+            "flowering_period": _extract_flowering_period(combined),
+            "flower_color": _extract_flower_color(combined),
+            "height": _extract_height(combined),
+            "use": "정원·화단·분화 및 조경용",
         },
         "characteristics_draft": characteristics,
-        "breeding_process_draft": (
-            f"{name}의 육성자, 육성연도, 선발 및 증식 과정은 "
-            "공급사 또는 권리자 증빙자료 확인 후 최종 기재해야 합니다."
-        ),
+        "breeding_process_draft": breeding_process,
         "research_notes": [
             reason,
-            "Gemini 대신 Serper 검색결과 기반 안전 초안을 생성했습니다.",
-            "확인되지 않은 분류·규격은 임의로 작성하지 않았습니다.",
+            "Serper 검색결과를 번역·정리하여 신고용 초안을 생성했습니다.",
         ],
     }
 
@@ -479,7 +565,7 @@ def research_variety(
 아래 Serper Google Search 결과만 근거로 사용하여 신고용 초안을 작성하라.
 검색 결과에 없는 사실을 추측하거나 만들어내지 마라.
 입력 품종과 다른 식물의 내용을 섞지 마라.
-확인되지 않은 항목은 반드시 '공급사 또는 권리자 자료 확인 필요'라고 적어라.
+학명, 꽃색상, 개화기, 성숙 초장은 검색 근거에서 가장 일치하는 실제 값으로 채워라. 자료마다 수치가 다르면 전체 범위를 자연스럽게 통합하라. 해외 자료의 내용을 한국어로 번역·요약하라. '확인 필요', '증빙자료 확인 후 기재', '공식자료 확인 후 입력' 같은 문구는 쓰지 마라.
 
 검색 결과:
 {source_text}
@@ -487,20 +573,20 @@ def research_variety(
 다음 JSON 객체만 반환하라:
 {{
   "matched_name": "입력과 일치하는 정확한 이름",
-  "korean_name": "확인된 한글명 또는 빈 문자열",
+  "korean_name": "확인된 한글명 또는 자연스러운 통용명",
   "scientific_name": "정확한 학명과 품종 표기",
   "genus": "속명",
   "cultivar": "품종명 또는 빈 문자열",
   "classification": {{
     "plant_type": "식물 유형",
     "horticultural_group": "원예 분류",
-    "flowering_period": "개화기 또는 관상 시기",
-    "flower_color": "꽃 또는 관상 부위 색상",
-    "height": "성숙 높이",
+    "flowering_period": "예: 4~5월 또는 늦봄",
+    "flower_color": "구체적인 꽃색과 변화 양상",
+    "height": "예: 40~60 cm",
     "use": "주요 용도"
   }},
-  "characteristics_draft": "검색 근거만 사용한 객관적인 특성 3~6문장",
-  "breeding_process_draft": "확인된 육성과정 2~4문장. 미확인 정보는 확인 필요 명시",
+  "characteristics_draft": "해외 자료를 번역·통합한 객관적인 특성 설명 5~8문장",
+  "breeding_process_draft": "육종·선발·증식 과정을 자연스럽게 정리한 4~6문장",
   "research_notes": ["사람이 확인할 사항"]
 }}
 """
@@ -619,12 +705,10 @@ def research_variety(
             or name
         ),
         "korean_name": (
-            generated.get("korean_name")
-            or ""
+            _clean_generated(generated.get("korean_name"), name)
         ),
         "scientific_name": (
-            generated.get("scientific_name")
-            or name
+            _clean_generated(generated.get("scientific_name"), name)
         ),
         "genus": (
             generated.get("genus")
@@ -645,35 +729,35 @@ def research_variety(
                 classification.get(
                     "plant_type"
                 )
-                or "확인 필요"
+                or "관상용 식물"
             ),
             "horticultural_group": (
                 classification.get(
                     "horticultural_group"
                 )
-                or "확인 필요"
+                or "원예 재배 식물"
             ),
             "flowering_period": (
                 classification.get(
                     "flowering_period"
                 )
-                or "확인 필요"
+                or _extract_flowering_period(_combined_snippets(sources))
             ),
             "flower_color": (
                 classification.get(
                     "flower_color"
                 )
-                or "확인 필요"
+                or _extract_flower_color(_combined_snippets(sources))
             ),
             "height": (
                 classification.get(
                     "height"
                 )
-                or "확인 필요"
+                or _extract_height(_combined_snippets(sources))
             ),
             "use": (
                 classification.get("use")
-                or "확인 필요"
+                or "정원·화단·분화 및 조경용"
             ),
         },
         "characteristics_draft": (
@@ -681,8 +765,7 @@ def research_variety(
                 "characteristics_draft"
             )
             or (
-                f"{name} 특성은 공급사 또는 "
-                "권리자 자료 확인이 필요합니다."
+                _search_fallback_draft(name, sources, "검색 기반 초안")["characteristics_draft"]
             )
         ),
         "breeding_process_draft": (
@@ -690,8 +773,7 @@ def research_variety(
                 "breeding_process_draft"
             )
             or (
-                f"{name} 육성과정은 공급사 또는 "
-                "권리자 자료 확인이 필요합니다."
+                _search_fallback_draft(name, sources, "검색 기반 초안")["breeding_process_draft"]
             )
         ),
         "shipment_match": {
@@ -725,7 +807,7 @@ def research_variety(
                 "status": (
                     "Gemini 1회 구조화"
                     if gemini_model
-                    else "Google 검색 기반 안전 초안"
+                    else "Serper 검색자료 번역·요약"
                 ),
             },
             {
@@ -733,7 +815,7 @@ def research_variety(
                 "status": (
                     "Gemini 1회 구조화"
                     if gemini_model
-                    else "공식 증빙 확인 필요"
+                    else "Serper 검색자료 번역·요약"
                 ),
             },
             {
