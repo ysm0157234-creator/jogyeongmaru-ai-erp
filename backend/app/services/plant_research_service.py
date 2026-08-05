@@ -22,7 +22,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v14.0-official-profile"
+BUILD_VERSION = "v15.0-hwpx-complete"
 
 
 def _norm(value: Any) -> str:
