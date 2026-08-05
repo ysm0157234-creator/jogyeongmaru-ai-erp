@@ -44,8 +44,7 @@ class GoogleSearchService:
     v17 검색 서비스.
 
     Serper 일반 웹검색만 사용한다. 무료 계정에서 차단될 수 있는
-    Serper 이미지 API는 호출하지 않는다. 사진은 웹페이지와
-    Wikimedia Commons에서 별도로 수집한다.
+    Serper 이미지 API는 호출하지 않는다. 사진은 크롤링 없이 Wikimedia Commons API에서 별도로 수집한다.
     """
 
     SEARCH_URL = "https://google.serper.dev/search"
@@ -80,7 +79,7 @@ class GoogleSearchService:
                 "X-API-KEY": self.api_key,
                 "Content-Type": "application/json",
                 "Accept": "application/json",
-                "User-Agent": "Jogyeongmaru-AI-ERP/17.0",
+                "User-Agent": "Jogyeongmaru-AI-ERP/17.1",
             },
             method="POST",
         )
@@ -224,5 +223,5 @@ class GoogleSearchService:
     ) -> list[ImageSearchResult]:
         raise GoogleSearchError(
             "v17에서는 Serper 이미지 API를 사용하지 않습니다. "
-            "공식 웹페이지 이미지와 Wikimedia Commons를 사용하세요."
+            "Wikimedia Commons API를 사용하세요."
         )

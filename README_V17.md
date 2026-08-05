@@ -1,4 +1,4 @@
-# 조경마루 AI ERP v17.0
+# 조경마루 AI ERP v17.1
 
 ## 변경 사항
 
@@ -20,7 +20,7 @@
 
 ## 배포 확인 버전
 
-`v17.0-web-image-single-gemini`
+`v17.1-strict-name-image-folder-fix`
 
 ## 필수 환경변수
 
@@ -35,3 +35,10 @@
 - GEMINI_MODEL
 
 Gemini 할당량 초과 시 Serper 검색결과 기반 자동 초안으로 계속 진행합니다.
+
+
+## v17.1 수정
+- 업체 폴더명 퍼지 매칭
+- 학명 제목 문자열 제거 및 풀 학명 정제
+- 크롤링 제거
+- Wikimedia Commons에서 정제 학명과 정확히 일치하는 사진만 표시

@@ -83,14 +83,55 @@ def match_folder(items: list[DriveFile], names: list[str]) -> DriveFile | None:
     return None
 
 
+def _supplier_core(value: str) -> str:
+    text = str(value or "").lower()
+    text = re.sub(r"\b(?:b\.?v\.?|bv|ltd\.?|limited|inc\.?|gmbh|company|co\.?)\b", " ", text)
+    text = re.sub(r"(?:네덜란드|netherlands|holland|nederland)", " ", text)
+    return norm(text)
+
+
+def _supplier_match_score(folder_name: str, supplier: str) -> float:
+    from difflib import SequenceMatcher
+
+    folder_full = norm(folder_name)
+    supplier_full = norm(supplier)
+    folder_core = _supplier_core(folder_name)
+    supplier_core = _supplier_core(supplier)
+
+    if not folder_core or not supplier_core:
+        return 0.0
+    if folder_core == supplier_core:
+        return 100.0
+    if supplier_core in folder_core or folder_core in supplier_core:
+        return 92.0
+    if supplier_full and (supplier_full in folder_full or folder_full in supplier_full):
+        return 88.0
+
+    ratio = SequenceMatcher(None, folder_core, supplier_core).ratio()
+    return ratio * 80.0
+
+
 def find_supplier_folder(drive: GoogleDriveService, root_id: str, supplier: str) -> DriveFile:
-    names = [f"{supplier}_네덜란드", f"{supplier} 네덜란드", supplier]
-    item = match_folder(drive.list_children(root_id), names)
-    if not item:
-        item = match_folder(drive.walk(root_id, max_depth=2, max_items=1200), names)
-    if not item:
-        raise RequiredFileMissingError(f"2025 수입에서 업체 폴더를 찾지 못했습니다: {supplier}_네덜란드")
-    return item
+    # 국가명, 법인 접미사, 공백·밑줄·대소문자가 달라도 같은 업체로 찾는다.
+    candidates = [item for item in drive.list_children(root_id) if is_folder(item)]
+    if not candidates:
+        candidates = [
+            item for item in drive.walk(root_id, max_depth=4, max_items=2500)
+            if is_folder(item)
+        ]
+
+    ranked = sorted(
+        ((_supplier_match_score(item.name, supplier), item) for item in candidates),
+        key=lambda pair: (-pair[0], pair[1].name.lower()),
+    )
+    if ranked and ranked[0][0] >= 68.0:
+        return ranked[0][1]
+
+    checked = ", ".join(item.name for _, item in ranked[:20]) or "없음"
+    raise RequiredFileMissingError(
+        f"2025 수입에서 업체 폴더를 찾지 못했습니다: {supplier}. "
+        f"확인한 폴더: {checked}"
+    )
 
 
 def find_shipping_folder(drive: GoogleDriveService, supplier: DriveFile) -> DriveFile:
@@ -302,7 +343,7 @@ def run_workflow(variety_name: str, draft_data: dict) -> tuple[bytes, dict]:
     )
 
     manifest = {
-        "build_version": "v17.0-web-image-single-gemini",
+        "build_version": "v17.1-strict-name-image-folder-fix",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "variety": variety_name,
         "matched_name": final_name,

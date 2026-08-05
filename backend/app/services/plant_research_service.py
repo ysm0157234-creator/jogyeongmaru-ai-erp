@@ -15,14 +15,13 @@ from app.services.google_search_service import (
     WebSearchResult,
 )
 from app.services.wikimedia_service import search_commons_images
-from app.services.web_image_service import PageImageResult, extract_page_images
 
 
 class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v17.0-web-image-single-gemini"
+BUILD_VERSION = "v17.1-strict-name-image-folder-fix"
 
 
 def _norm(value: Any) -> str:
@@ -31,6 +30,60 @@ def _norm(value: Any) -> str:
         "",
         str(value or "").lower(),
     )
+
+
+
+
+_SCIENTIFIC_STOP_MARKERS = re.compile(
+    r"\b(?:common\s+name|plant\s+profile|overview|description|family|rhs|wikipedia|"
+    r"missouri\s+botanical\s+garden|north\s+carolina\s+extension)\b",
+    re.I,
+)
+
+
+def _clean_scientific_name(value: Any, fallback: str = "") -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip(" ,;:|–—-")
+    text = text.replace("’", "'").replace("‘", "'")
+    if not text:
+        text = re.sub(r"\s+", " ", str(fallback or "")).strip()
+
+    # 검색 제목 뒤에 붙는 Common Name, Profile 등의 문구 제거
+    text = _SCIENTIFIC_STOP_MARKERS.split(text, maxsplit=1)[0].strip(" ,;:|–—-")
+
+    # 같은 이명법이 제목에 두 번 반복되면 한 번만 남긴다.
+    duplicate = re.match(
+        r"^([A-Z][a-z-]+\s+(?:×\s*)?[a-z][a-z-]+)\s+\1(?:\b|[.,])",
+        text,
+        flags=re.I,
+    )
+    if duplicate:
+        text = duplicate.group(1) + text[duplicate.end():]
+        text = re.sub(r"\s+", " ", text).strip(" ,.;:|–—-")
+
+    match = re.match(
+        r"^(?P<base>[A-Z][a-z-]+\s+(?:×\s*)?[a-z][a-z-]+"
+        r"(?:\s+(?:subsp\.|ssp\.|var\.|f\.)\s+[a-z][a-z-]+)?)"
+        r"(?P<cultivar>\s+['\"][^'\"]+['\"])?"
+        r"(?P<rest>.*)$",
+        text,
+    )
+    if not match:
+        return ""
+
+    result = (match.group("base") + (match.group("cultivar") or "")).strip()
+    rest = (match.group("rest") or "").strip(" ,;:|–—-")
+
+    # 명명자는 L., Mill., (L.) 등 식물명명자 형태일 때만 제한적으로 붙인다.
+    if rest:
+        rest = _SCIENTIFIC_STOP_MARKERS.split(rest, maxsplit=1)[0].strip(" ,;:|–—-")
+        authority = re.match(
+            r"^((?:\([A-Z][A-Za-z.-]{0,20}\)|[A-Z][A-Za-z.-]{0,20})(?:\s+&?\s*(?:\([A-Z][A-Za-z.-]{0,20}\)|[A-Z][A-Za-z.-]{0,20})){0,2})$",
+            rest,
+        )
+        if authority and not re.search(r"\b(?:Name|Plant|Profile|Common)\b", rest, re.I):
+            result += " " + authority.group(1)
+
+    return re.sub(r"\s+", " ", result).strip()
 
 
 def _terms(name: str) -> list[str]:
@@ -250,230 +303,83 @@ def _image_candidates(
 
 
 
-def _page_image_candidates(
-    images: list[PageImageResult],
+def _commons_candidates(
+    scientific_name: str,
     role: str,
     prefix: str,
-    variety_name: str,
 ) -> list[dict[str, Any]]:
-    terms = _terms(variety_name)
-    overall_words = (
-        "whole plant", "habit", "shrub", "tree", "specimen",
-        "garden", "landscape", "plant habit", "entire plant",
-        "전체", "수형", "전경",
-    )
-    closeup_words = (
-        "flower", "bloom", "blossom", "close up", "close-up",
-        "foliage", "leaf", "catkin", "fruit", "berry", "bud",
-        "꽃", "잎", "근접", "열매",
-    )
-    role_words = overall_words if role == "overall" else closeup_words
-    opposite_words = closeup_words if role == "overall" else overall_words
-    output: list[dict[str, Any]] = []
+    # 명명자 표기는 Commons 검색에 방해될 수 있어 속명+종명(+품종명)만 사용한다.
+    identity = _clean_scientific_name(scientific_name) or scientific_name
+    parts = identity.split()
+    search_identity = " ".join(parts[:2])
+    cultivar_match = re.search(r"['\"]([^'\"]+)['\"]", identity)
+    if cultivar_match:
+        search_identity += f" {cultivar_match.group(1)}"
 
-    for index, image in enumerate(images, 1):
-        searchable = " ".join((
-            image.title, image.alt_text, image.context_url,
-            image.display_link, image.image_url,
-        ))
-        relevance = _score(searchable, terms)
-        lowered = searchable.lower()
-        role_score = sum(8 for word in role_words if word in lowered)
-        opposite_penalty = sum(3 for word in opposite_words if word in lowered)
-        dimension_score = 0
-        if image.width and image.height:
-            pixels = image.width * image.height
-            if pixels >= 1_000_000:
-                dimension_score = 12
-            elif pixels >= 400_000:
-                dimension_score = 7
-            elif pixels >= 150_000:
-                dimension_score = 3
-        # 품종명이 이미지 문자열에 없더라도 해당 페이지가 품종 검색 결과이면 허용
-        total = relevance + role_score - opposite_penalty + dimension_score + _domain_priority(image.context_url)
-        if total < 35:
-            continue
-        output.append({
-            "id": f"{prefix}-web-{index}",
-            "title": image.title or (
-                f"{variety_name} 전체 모습" if role == "overall"
-                else f"{variety_name} 근접 모습"
-            ),
-            "role": role,
-            "preview_url": image.preview_url or image.image_url,
-            "download_url": image.image_url,
-            "backup_url": image.preview_url,
-            "source_url": image.context_url,
-            "source": image.display_link or "공식 웹페이지",
-            "license": "제출 전 원본 페이지의 이용 조건을 확인하세요.",
-            "recommended": False,
-            "research_query": variety_name,
-            "relevance_score": total,
-            "width": image.width,
-            "height": image.height,
-            "source_type": image.source_type,
-        })
+    identity_terms = _terms(search_identity)
+    required_terms = identity_terms[:2] if len(identity_terms) >= 2 else identity_terms
+    queries = (
+        (
+            f'{search_identity} whole plant',
+            f'{search_identity} habit',
+            f'{search_identity} specimen',
+        )
+        if role == "overall"
+        else (
+            f'{search_identity} flower close up',
+            f'{search_identity} bloom',
+            f'{search_identity} leaf foliage',
+        )
+    )
+    role_words = (
+        ("whole", "habit", "specimen", "plant", "shrub", "tree")
+        if role == "overall"
+        else ("flower", "bloom", "blossom", "leaf", "foliage", "bud", "catkin", "close")
+    )
+
+    output: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for query in queries:
+        for image in search_commons_images(query, limit=18):
+            key = image.original_url or image.thumbnail_url
+            if not key or key in seen:
+                continue
+            searchable = " ".join((
+                image.title or "", image.description_url or "", image.original_url or ""
+            ))
+            normalized = _norm(searchable)
+            # 속명과 종소명이 모두 없는 이미지는 무조건 제외한다.
+            if required_terms and not all(_norm(term) in normalized for term in required_terms):
+                continue
+            lowered = searchable.lower()
+            role_score = sum(8 for word in role_words if word in lowered)
+            relevance = _score(searchable, identity_terms)
+            total = relevance + role_score + 55
+            if total < 75:
+                continue
+            seen.add(key)
+            output.append({
+                "id": f"{prefix}-commons-{len(output) + 1}",
+                "title": image.title or (
+                    f"{search_identity} 전체 모습" if role == "overall"
+                    else f"{search_identity} 근접 모습"
+                ),
+                "role": role,
+                "preview_url": image.thumbnail_url,
+                "download_url": image.original_url,
+                "backup_url": image.thumbnail_url,
+                "source_url": image.description_url,
+                "source": "Wikimedia Commons",
+                "license": image.license_name or "Commons 원본 페이지에서 라이선스 확인",
+                "recommended": False,
+                "research_query": search_identity,
+                "relevance_score": total,
+            })
 
     return sorted(
         output,
         key=lambda item: (-int(item.get("relevance_score", 0)), item["title"].lower()),
     )
-
-
-def _collect_web_page_images(
-    search: GoogleSearchService,
-    variety_name: str,
-    role: str,
-    base_sources: list[WebSearchResult],
-) -> list[PageImageResult]:
-    queries = (
-        (
-            f'{variety_name} whole plant habit specimen',
-            f'{variety_name} nursery plant habit',
-            f'{variety_name} botanical garden',
-        )
-        if role == "overall"
-        else (
-            f'{variety_name} flower close up',
-            f'{variety_name} bloom foliage leaf',
-            f'{variety_name} botanical detail',
-        )
-    )
-    pages: list[WebSearchResult] = list(base_sources[:12])
-    for query in queries:
-        try:
-            pages.extend(search.search_web(query, num=8))
-        except GoogleSearchError:
-            continue
-    pages = _dedupe_web(pages, variety_name, limit=20)
-
-    output: list[PageImageResult] = []
-    seen_pages: set[str] = set()
-    for page in pages:
-        if page.link in seen_pages:
-            continue
-        seen_pages.add(page.link)
-        output.extend(extract_page_images(page.link, max_images=12))
-        if len(output) >= 80:
-            break
-    return output
-
-
-def _commons_candidates(
-    variety_name: str,
-    role: str,
-    prefix: str,
-) -> list[dict[str, Any]]:
-    terms = _terms(variety_name)
-
-    queries = (
-        (
-            f'{variety_name} whole plant',
-            f'{variety_name} habit',
-        )
-        if role == "overall"
-        else (
-            f'{variety_name} close up',
-            f'{variety_name} flower',
-            f'{variety_name} foliage',
-            f'{variety_name} catkin',
-        )
-    )
-
-    output: list[dict[str, Any]] = []
-    seen: set[str] = set()
-
-    for query in queries:
-        for image in search_commons_images(
-            query,
-            limit=12,
-        ):
-            key = (
-                image.original_url
-                or image.thumbnail_url
-            )
-
-            if not key or key in seen:
-                continue
-
-            searchable = " ".join(
-                (
-                    image.title,
-                    image.description_url,
-                    image.original_url,
-                )
-            )
-
-            relevance = _score(
-                searchable,
-                terms,
-            )
-
-            if relevance <= 0:
-                continue
-
-            seen.add(key)
-
-            output.append(
-                {
-                    "id": (
-                        f"{prefix}-commons-"
-                        f"{len(output) + 1}"
-                    ),
-                    "title": (
-                        image.title
-                        or (
-                            f"{variety_name} 전체 모습"
-                            if role == "overall"
-                            else f"{variety_name} 근접 모습"
-                        )
-                    ),
-                    "role": role,
-                    "preview_url": (
-                        image.thumbnail_url
-                    ),
-                    "download_url": (
-                        image.original_url
-                    ),
-                    "backup_url": (
-                        image.thumbnail_url
-                    ),
-                    "source_url": (
-                        image.description_url
-                    ),
-                    "source": (
-                        "Wikimedia Commons"
-                    ),
-                    "license": (
-                        image.license_name
-                        or (
-                            "Commons 원본 페이지에서 "
-                            "라이선스 확인"
-                        )
-                    ),
-                    "recommended": False,
-                    "research_query": (
-                        variety_name
-                    ),
-                    "relevance_score": (
-                        relevance + 55
-                    ),
-                }
-            )
-
-    return sorted(
-        output,
-        key=lambda item: (
-            -int(
-                item.get(
-                    "relevance_score",
-                    0,
-                )
-            ),
-            item["title"].lower(),
-        ),
-    )
-
 
 def _dedupe_images(
     items: list[dict[str, Any]],
@@ -739,31 +645,36 @@ def _combined_source_text(sources: list[WebSearchResult]) -> str:
     return " ".join(f"{x.title} {x.snippet}" for x in sources)
 
 def _extract_dominant_scientific_name(name: str, sources: list[WebSearchResult]) -> str:
-    combined = _combined_source_text(sources)
-    candidates = re.findall(
-        r"\b([A-Z][a-z-]+\s+(?:×\s*)?[a-z][a-z-]+(?:\s+['’][^'’]+['’])?(?:\s+[A-Z][A-Za-z. -]{0,30})?)",
-        combined,
-    )
-    cleaned=[]
-    genus=(name.split()[0].capitalize() if name.split() else "")
-    for c in candidates:
-        c=re.sub(r"\s+", " ", c).strip(" ,.;:")
-        if genus and not c.startswith(genus+" "):
-            continue
-        if len(c.split())>=2:
-            cleaned.append(c)
-    if cleaned:
-        # 동일 학명의 명명자 유무를 하나로 보고 빈도 우선
-        from collections import Counter
-        base=Counter(" ".join(x.split()[:2]) for x in cleaned)
-        winner=base.most_common(1)[0][0]
-        detailed=[x for x in cleaned if x.startswith(winner)]
-        return max(detailed, key=len)
-    # 입력 자체가 이명법이면 그대로 사용
-    if re.match(r"^[A-Z][a-z-]+\s+(?:×\s*)?[a-z][a-z-]+", name):
-        return name
-    # 속명만 들어온 경우 검색결과에서 못 찾았을 때 안전하게 spp. 사용
-    return f"{genus} spp." if genus else name
+    from collections import Counter
+
+    genus = name.split()[0].capitalize() if name.split() else ""
+    candidates: list[str] = []
+    for source in sources:
+        for raw in (source.title, source.snippet):
+            for match in re.finditer(
+                r"\b[A-Z][a-z-]+\s+(?:×\s*)?[a-z][a-z-]+"
+                r"(?:\s+(?:subsp\.|ssp\.|var\.|f\.)\s+[a-z][a-z-]+)?"
+                r"(?:\s+['’][^'’]+['’])?"
+                r"(?:\s+(?:\([A-Z][A-Za-z.-]{0,20}\)|[A-Z][A-Za-z.-]{0,20}))?",
+                raw or "",
+            ):
+                cleaned = _clean_scientific_name(match.group(0))
+                if not cleaned:
+                    continue
+                if genus and not cleaned.startswith(genus + " "):
+                    continue
+                candidates.append(cleaned)
+
+    if candidates:
+        bases = Counter(" ".join(item.split()[:2]) for item in candidates)
+        winner = bases.most_common(1)[0][0]
+        detailed = [item for item in candidates if item.startswith(winner)]
+        # 빈도가 같다면 불필요하게 긴 문자열보다 정상적인 짧은 명명자 표기를 우선
+        detailed.sort(key=lambda item: (len(item.split()) > 5, -candidates.count(item), len(item)))
+        return detailed[0]
+
+    input_name = _clean_scientific_name(name)
+    return input_name
 
 def _extract_height_cm(sources: list[WebSearchResult]) -> str:
     text=_combined_source_text(sources)
@@ -951,11 +862,12 @@ def research_variety(
         or generated["matched_name"]
     )
 
-    generated["scientific_name"] = (
-        _clean_text(
-            generated.get("scientific_name")
-        )
+    generated["scientific_name"] = _clean_scientific_name(
+        generated.get("scientific_name"),
+        fallback=_extract_dominant_scientific_name(name, sources),
     )
+    if not generated["scientific_name"]:
+        generated["scientific_name"] = _extract_dominant_scientific_name(name, sources)
 
     generated["characteristics_draft"] = (
         _clean_text(
@@ -1028,38 +940,15 @@ def research_variety(
         generated
     )
 
-    # Serper 무료 계정에서 차단되는 /images 엔드포인트는 사용하지 않는다.
-    # 일반 웹검색으로 공식 페이지를 찾고, 페이지의 og:image/JSON-LD/img와
-    # Wikimedia Commons에서 전체 모습과 근접 사진을 각각 수집한다.
-    overall_page_images = _collect_web_page_images(
-        search, name, "overall", sources
-    )
-    closeup_page_images = _collect_web_page_images(
-        search, name, "closeup", sources
-    )
-
+    # 크롤링과 Serper 이미지 API는 사용하지 않는다.
+    # 정제된 풀 학명으로 Wikimedia Commons API에서만 엄격하게 사진을 찾는다.
     scientific_query = generated.get("scientific_name") or name
     overall = _dedupe_images(
-        _page_image_candidates(
-            overall_page_images, "overall", "overall", name
-        )
-        + _commons_candidates(name, "overall", "overall")
-        + (
-            _commons_candidates(scientific_query, "overall", "overall-scientific")
-            if _norm(scientific_query) != _norm(name) else []
-        ),
+        _commons_candidates(scientific_query, "overall", "overall-scientific"),
         limit=10,
     )
-
     closeup = _dedupe_images(
-        _page_image_candidates(
-            closeup_page_images, "closeup", "closeup", name
-        )
-        + _commons_candidates(name, "closeup", "closeup")
-        + (
-            _commons_candidates(scientific_query, "closeup", "closeup-scientific")
-            if _norm(scientific_query) != _norm(name) else []
-        ),
+        _commons_candidates(scientific_query, "closeup", "closeup-scientific"),
         limit=10,
     )
 
