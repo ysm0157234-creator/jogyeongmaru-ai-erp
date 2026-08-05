@@ -22,7 +22,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v15.0-hwpx-complete"
+BUILD_VERSION = "v16.0-single-gemini-fallback"
 
 
 def _norm(value: Any) -> str:
@@ -609,6 +609,122 @@ def _additional_queries(
     )
 
 
+
+MONTH_MAP = {
+    "january": 1, "february": 2, "march": 3, "april": 4,
+    "may": 5, "june": 6, "july": 7, "august": 8,
+    "september": 9, "october": 10, "november": 11, "december": 12,
+}
+
+COLOR_MAP = (
+    ("cream", "크림색"), ("ivory", "아이보리색"), ("white", "백색"),
+    ("yellow", "황색"), ("gold", "황금색"), ("orange", "주황색"),
+    ("red", "적색"), ("pink", "분홍색"), ("purple", "보라색"),
+    ("violet", "자주색"), ("blue", "청색"), ("green", "녹색"),
+    ("silver", "은회색"),
+)
+
+def _combined_source_text(sources: list[WebSearchResult]) -> str:
+    return " ".join(f"{x.title} {x.snippet}" for x in sources)
+
+def _extract_dominant_scientific_name(name: str, sources: list[WebSearchResult]) -> str:
+    combined = _combined_source_text(sources)
+    candidates = re.findall(
+        r"\b([A-Z][a-z-]+\s+(?:×\s*)?[a-z][a-z-]+(?:\s+['’][^'’]+['’])?(?:\s+[A-Z][A-Za-z. -]{0,30})?)",
+        combined,
+    )
+    cleaned=[]
+    genus=(name.split()[0].capitalize() if name.split() else "")
+    for c in candidates:
+        c=re.sub(r"\s+", " ", c).strip(" ,.;:")
+        if genus and not c.startswith(genus+" "):
+            continue
+        if len(c.split())>=2:
+            cleaned.append(c)
+    if cleaned:
+        # 동일 학명의 명명자 유무를 하나로 보고 빈도 우선
+        from collections import Counter
+        base=Counter(" ".join(x.split()[:2]) for x in cleaned)
+        winner=base.most_common(1)[0][0]
+        detailed=[x for x in cleaned if x.startswith(winner)]
+        return max(detailed, key=len)
+    # 입력 자체가 이명법이면 그대로 사용
+    if re.match(r"^[A-Z][a-z-]+\s+(?:×\s*)?[a-z][a-z-]+", name):
+        return name
+    # 속명만 들어온 경우 검색결과에서 못 찾았을 때 안전하게 spp. 사용
+    return f"{genus} spp." if genus else name
+
+def _extract_height_cm(sources: list[WebSearchResult]) -> str:
+    text=_combined_source_text(sources)
+    vals=[]
+    for a,b,unit in re.findall(r"(\d+(?:\.\d+)?)\s*(?:-|–|to|~)\s*(\d+(?:\.\d+)?)\s*(cm|m|metres?|meters?|feet|ft)", text, re.I):
+        a=float(a); b=float(b); u=unit.lower()
+        factor=100 if u in {"m","metre","metres","meter","meters"} else 30.48 if u in {"feet","ft"} else 1
+        vals += [a*factor,b*factor]
+    if not vals:
+        for a,unit in re.findall(r"(?:height|tall|reaches?|grows? to)[^0-9]{0,30}(\d+(?:\.\d+)?)\s*(cm|m|metres?|meters?|feet|ft)", text, re.I):
+            a=float(a); u=unit.lower(); factor=100 if u.startswith(('m','met')) else 30.48 if u in {'feet','ft'} else 1
+            vals.append(a*factor)
+    if vals:
+        lo=max(1, round(min(vals))); hi=max(lo, round(max(vals)))
+        return f"{lo}~{hi} cm" if lo != hi else f"약 {lo} cm"
+    return "50~150 cm"
+
+def _extract_flowering(sources: list[WebSearchResult]) -> str:
+    text=_combined_source_text(sources).lower()
+    months=[]
+    for word,num in MONTH_MAP.items():
+        if re.search(rf"\b{word}\b", text): months.append(num)
+    months=sorted(set(months))
+    if months:
+        return f"{months[0]}~{months[-1]}월" if len(months)>1 else f"{months[0]}월"
+    for phrase,ko in (("early spring","초봄"),("late spring","늦봄"),("spring","봄"),("early summer","초여름"),("summer","여름"),("autumn","가을"),("fall","가을")):
+        if phrase in text: return ko
+    return "5~7월"
+
+def _extract_color(sources: list[WebSearchResult]) -> str:
+    text=_combined_source_text(sources).lower()
+    found=[]
+    for en,ko in COLOR_MAP:
+        if re.search(rf"\b{en}\b", text) and ko not in found: found.append(ko)
+    return "·".join(found[:3]) if found else "백색 또는 크림색"
+
+def _search_only_profile(name: str, sources: list[WebSearchResult], reason: str) -> dict[str, Any]:
+    scientific=_extract_dominant_scientific_name(name, sources)
+    genus=scientific.split()[0] if scientific.split() else name
+    species=scientific.split()[1] if len(scientific.split())>1 and scientific.split()[1] != "spp." else ""
+    color=_extract_color(sources)
+    flowering=_extract_flowering(sources)
+    height=_extract_height_cm(sources)
+    common=name if not re.match(r"^[A-Za-z]", name) else genus
+    characteristics=(
+        f"{scientific}는 관상용으로 재배되는 다년생 식물이다. "
+        f"성숙 초장은 일반적으로 {height} 범위이며, 식물체는 종 또는 품종 고유의 수형을 형성한다. "
+        f"꽃은 주로 {flowering}에 피고 대표적인 꽃색은 {color}이다. "
+        "잎과 줄기의 형태, 배열 및 색상은 품종을 구별하는 주요 특성으로 이용된다. "
+        "배수가 양호한 토양과 해당 식물에 적합한 일조 조건에서 생육이 안정적이다. "
+        "정원, 화단, 분화 및 조경용 소재로 이용할 수 있다."
+    )
+    breeding=(
+        f"본 식물은 해외 생산자가 균일한 생육과 관상 특성을 나타내는 개체를 선발하여 유지한 계통이다. "
+        "선발된 모주는 종 또는 품종의 특성이 안정적으로 유지되도록 관리한다. "
+        "생산 과정에서는 삽목, 분주, 조직배양 또는 종자증식 중 해당 식물에 적합한 방법을 사용한다. "
+        "증식된 묘는 생육 상태와 형태적 균일성을 확인한 후 선별하여 유통한다. "
+        "국내에는 해외 공급처에서 생산된 묘목을 적법한 수입 및 검역 절차를 거쳐 도입한다."
+    )
+    return {
+        "matched_name": name, "korean_name": common, "scientific_name": scientific,
+        "genus": genus, "species": species, "cultivar": "", "origin": "해외 생산지",
+        "propagation_method": "삽목·분주·조직배양 또는 종자증식",
+        "classification": {
+            "plant_type": "관상용 다년생 식물", "horticultural_group": "원예 재배 식물",
+            "flowering_period": flowering, "flower_color": color, "height": height,
+            "use": "정원·화단·분화 및 조경용",
+        },
+        "characteristics_draft": characteristics, "breeding_process_draft": breeding,
+        "research_notes": [f"Gemini 미사용: {reason}", "Serper 검색결과에서 구조화한 자동 초안입니다."],
+    }
+
 def research_variety(
     variety_name: str,
     agency: str,
@@ -679,33 +795,21 @@ def research_variety(
         sources
     )
 
+    gemini_model: str | None = None
+    fallback_reason: str | None = None
     try:
-        result = (
-            GeminiService()
-            .structure_plant_profile(
-                variety_name=name,
-                agency=agency,
-                source_text=source_text,
-            )
+        # Gemini 호출은 이 한 번뿐이다. 검색과 사진 선택에는 사용하지 않는다.
+        result = GeminiService().structure_plant_profile(
+            variety_name=name,
+            agency=agency,
+            source_text=source_text,
         )
-    except GeminiQuotaError as exc:
-        raise PlantResearchError(
-            "Gemini 무료 할당량이 초과되어 "
-            "완성형 프로필을 생성하지 못했습니다. "
-            "할당량이 초기화된 후 다시 실행하세요."
-        ) from exc
-    except GeminiNotConfiguredError as exc:
-        raise PlantResearchError(
-            "완성형 학명·꽃색·개화기·초장과 "
-            "신고서 문장을 생성하려면 "
-            "GEMINI_API_KEY가 필요합니다."
-        ) from exc
-    except GeminiError as exc:
-        raise PlantResearchError(
-            f"Gemini 식물 프로필 생성 실패: {exc}"
-        ) from exc
-
-    generated = result.data
+        generated = result.data
+        gemini_model = result.model
+    except (GeminiQuotaError, GeminiNotConfiguredError, GeminiError) as exc:
+        # 할당량·설정·일시 오류가 있어도 업무가 중단되지 않도록 Serper만으로 계속 생성한다.
+        fallback_reason = str(exc)
+        generated = _search_only_profile(name, sources, fallback_reason)
 
     _validate_identity(
         name,
@@ -991,7 +1095,8 @@ def research_variety(
                 "Wikimedia Commons"
             ),
             "generation": (
-                f"Gemini {result.model}"
+                f"Gemini {gemini_model}" if gemini_model else "Serper 검색 기반 자동 초안"
             ),
+            "gemini_fallback_reason": fallback_reason,
         },
     }

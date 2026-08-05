@@ -30,7 +30,7 @@ class GeminiCallResult:
 
 
 class GeminiService:
-    BUILD_VERSION = "v15.0-hwpx-complete"
+    BUILD_VERSION = "v16.0-single-gemini-fallback"
 
     FORBIDDEN_PHRASES = (
         "확인 필요",

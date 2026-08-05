@@ -302,7 +302,7 @@ def run_workflow(variety_name: str, draft_data: dict) -> tuple[bytes, dict]:
     )
 
     manifest = {
-        "build_version": "v15.0-hwpx-complete",
+        "build_version": "v16.0-single-gemini-fallback",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "variety": variety_name,
         "matched_name": final_name,

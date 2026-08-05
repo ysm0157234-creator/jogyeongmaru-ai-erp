@@ -28,4 +28,4 @@ WEB Root Directory: frontend
 
 ## 배포 확인
 
-화면에 `v15.0-hwpx-complete`가 표시되어야 합니다.
+화면에 `v16.0-single-gemini-fallback`가 표시되어야 합니다.
