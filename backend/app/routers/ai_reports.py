@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal, get_db
+from app.core.text_utils import sanitize_postgres_text
 from app.models.ai_draft import AIDraft
 from app.models.user import User
 from app.schemas.ai_draft import AIDraftResponse, AIDraftUpdateRequest, AIGenerateRequest, AIFileGenerateRequest
@@ -16,13 +17,14 @@ from app.services.drive_service import DriveNotConfiguredError, DriveOperationEr
 from app.services.gemini_service import GeminiError, GeminiNotConfiguredError
 from app.services.google_search_service import GoogleSearchNotConfiguredError
 from app.services.plant_research_service import PlantResearchError, research_variety
-from app.services.workflow import RequiredFileMissingError, run_workflow
+from app.services.service_errors import RequiredFileMissingError
+from app.services.workflow import run_workflow
 from app.services.upload_service import UploadError, get_upload, save_upload
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/ai-reports", tags=["ai-reports"])
 
-BUILD_VERSION = "v19.1-stable-uploads-docx"
+BUILD_VERSION = "v20.1-actual-project-stable"
 
 
 def get_owned_draft(db: Session, draft_id: int, user: User) -> AIDraft:
@@ -140,7 +142,7 @@ def _run_research_job(draft_id: int, variety_name: str, agency: str) -> None:
         draft = db.get(AIDraft, draft_id)
         if not draft:
             return
-        draft.result_data = result
+        draft.result_data = sanitize_postgres_text(result)
         draft.status = "검토 대기"
         db.add(draft)
         db.commit()
@@ -250,7 +252,7 @@ def generate_ai_report(
 def update_ai_draft(draft_id: int, payload: AIDraftUpdateRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     draft = get_owned_draft(db, draft_id, current_user)
     validate_result_data(payload.result_data)
-    draft.result_data = copy.deepcopy(payload.result_data)
+    draft.result_data = sanitize_postgres_text(copy.deepcopy(payload.result_data))
     draft.status = payload.status or "검토 완료"
     db.add(draft)
     db.commit()

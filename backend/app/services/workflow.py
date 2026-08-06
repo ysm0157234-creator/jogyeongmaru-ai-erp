@@ -4,10 +4,14 @@ from app.services.document_manager import build_documents
 from app.services.drive_manager import collect_drive_assets
 from app.services.image_manager import image_from_selection
 from app.services.package_manager import build_manifest, build_package
+from app.services.service_errors import RequiredFileMissingError
+
+# Backward-compatible export: older routers import this exception from workflow.py.
+__all__ = ["RequiredFileMissingError", "run_workflow"]
 
 
 def run_workflow(variety_name: str, draft_data: dict) -> tuple[bytes, dict]:
-    """Coordinate Drive, image, document, and ZIP services without owning their implementation."""
+    """Create the complete report package without failing on optional assets."""
     assets = collect_drive_assets(variety_name, draft_data)
     warnings = list(assets.warnings)
 

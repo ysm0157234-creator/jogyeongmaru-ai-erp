@@ -5,6 +5,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from app.core.database import get_db
+from app.core.text_utils import sanitize_postgres_text
 from app.models.report import Report
 from app.models.user import User
 from app.schemas.report import (
@@ -119,7 +120,8 @@ def create_report(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    report = Report(**payload.model_dump(), created_by=current_user.id)
+    clean_payload = sanitize_postgres_text(payload.model_dump())
+    report = Report(**clean_payload, created_by=current_user.id)
     db.add(report)
     db.commit()
     db.refresh(report)
@@ -136,7 +138,7 @@ def update_report(
     if not report:
         raise HTTPException(status_code=404, detail="신고 자료를 찾을 수 없습니다.")
 
-    for key, value in payload.model_dump().items():
+    for key, value in sanitize_postgres_text(payload.model_dump()).items():
         setattr(report, key, value)
 
     db.commit()

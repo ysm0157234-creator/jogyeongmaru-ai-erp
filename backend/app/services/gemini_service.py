@@ -30,7 +30,7 @@ class GeminiCallResult:
 
 
 class GeminiService:
-    BUILD_VERSION = "v19.1-stable-uploads-docx"
+    BUILD_VERSION = "v20.1-actual-project-stable"
 
     FORBIDDEN_PHRASES = (
         "확인 필요",

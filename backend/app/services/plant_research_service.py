@@ -21,7 +21,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v19.1-stable-uploads-docx"
+BUILD_VERSION = "v20.1-actual-project-stable"
 
 
 def _norm(value: Any) -> str:

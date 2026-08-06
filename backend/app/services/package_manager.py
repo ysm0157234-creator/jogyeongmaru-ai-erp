@@ -17,7 +17,7 @@ def safe(value: str) -> str:
 def build_manifest(variety_name: str, draft_data: dict, assets: DriveAssets, documents: DocumentBundle, warnings: list[str]) -> dict:
     final_name = draft_data.get("matched_name") or variety_name
     return {
-        "build_version": "v20.0-modular-stable",
+        "build_version": "v20.1-actual-project-stable",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "variety": variety_name,
         "matched_name": final_name,
