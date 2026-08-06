@@ -30,7 +30,7 @@ class GeminiCallResult:
 
 
 class GeminiService:
-    BUILD_VERSION = "v20.1-actual-project-stable"
+    BUILD_VERSION = "v21.1-original-invoice-color-images"
 
     FORBIDDEN_PHRASES = (
         "확인 필요",

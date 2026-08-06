@@ -15,13 +15,14 @@ from app.services.google_search_service import (
     WebSearchResult,
 )
 from app.services.wikimedia_service import search_commons_images
+from app.services.web_image_service import extract_page_images
 
 
 class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v20.1-actual-project-stable"
+BUILD_VERSION = "v21.1-original-invoice-color-images"
 
 
 def _norm(value: Any) -> str:
@@ -302,6 +303,72 @@ def _image_candidates(
 
 
 
+
+
+def _web_page_candidates(
+    sources: list[WebSearchResult],
+    scientific_name: str,
+    role: str,
+    prefix: str,
+) -> list[dict[str, Any]]:
+    """Serper 웹검색 결과의 공식·판매 페이지에서 컬러 실사 후보를 우선 수집한다."""
+    identity = _clean_scientific_name(scientific_name) or scientific_name
+    terms = _terms(identity)
+    role_words = (
+        ("plant", "habit", "specimen", "garden", "shrub", "tree", "rosette")
+        if role == "overall"
+        else ("flower", "bloom", "blossom", "inflorescence", "close", "leaf", "foliage", "bud")
+    )
+    blocked = (
+        "illustration", "drawing", "engraving", "herbarium", "plate", "scan", "archive",
+        "black and white", "monochrome", "botanical art", "flora of", "biodiversity library",
+    )
+    output: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for source_index, source in enumerate(sources[:5]):
+        # 검색결과 제목·요약 자체가 오래된 도감/삽화면 건너뛴다.
+        source_text = f"{source.title} {source.snippet} {source.link}".lower()
+        if any(word in source_text for word in blocked):
+            continue
+        for image in extract_page_images(source.link, timeout=6, max_images=12):
+            key = image.image_url or image.preview_url
+            if not key or key in seen:
+                continue
+            searchable = " ".join((image.title, image.alt_text, image.context_url, image.image_url))
+            normalized = _norm(searchable)
+            # 속명·종명이 이미지 주변 정보나 페이지 URL에 모두 없으면 제외한다.
+            required = terms[:2] if len(terms) >= 2 else terms
+            if required and not all(_norm(term) in normalized or _norm(term) in _norm(source_text) for term in required):
+                continue
+            lowered = searchable.lower()
+            if any(word in lowered for word in blocked):
+                continue
+            role_score = sum(12 for word in role_words if word in lowered)
+            size_score = 0
+            if image.width and image.height:
+                pixels = image.width * image.height
+                size_score = 18 if pixels >= 1_000_000 else 10 if pixels >= 300_000 else 0
+            domain_score = _domain_priority(source.link)
+            score = 95 + _score(searchable + " " + source_text, terms) + role_score + size_score + domain_score - source_index * 2
+            seen.add(key)
+            output.append({
+                "id": f"{prefix}-web-{len(output)+1}",
+                "title": image.title or image.alt_text or f"{identity} {'전체 모습' if role == 'overall' else '근접 모습'}",
+                "role": role,
+                "preview_url": image.preview_url or image.image_url,
+                "download_url": image.image_url,
+                "backup_url": image.preview_url,
+                "source_url": image.context_url,
+                "source": image.display_link or source.display_link or "Serper 웹검색 페이지",
+                "license": "제출 전 원본 페이지의 이미지 이용 조건을 확인하세요.",
+                "recommended": False,
+                "research_query": identity,
+                "relevance_score": score,
+                "width": image.width,
+                "height": image.height,
+                "source_type": image.source_type,
+            })
+    return sorted(output, key=lambda item: (-int(item.get("relevance_score", 0)), item["title"].lower()))
 
 def _commons_candidates(
     scientific_name: str,
@@ -976,53 +1043,28 @@ def research_variety(
         generated
     )
 
-    # 크롤링과 Serper 이미지 API는 사용하지 않는다.
-    # 정제된 풀 학명으로 Wikimedia Commons API에서만 엄격하게 사진을 찾는다.
+    # Serper 웹검색에서 확인된 공식·판매 페이지의 컬러 실사를 우선한다.
+    # Wikimedia는 웹페이지 후보가 부족할 때만 보조 후보로 뒤에 붙인다.
     scientific_query = generated.get("scientific_name") or name
-    overall = _dedupe_images(
-        _commons_candidates(scientific_query, "overall", "overall-scientific"),
-        limit=10,
-    )
-    closeup = _dedupe_images(
-        _commons_candidates(scientific_query, "closeup", "closeup-scientific"),
-        limit=10,
-    )
+    overall_web = _web_page_candidates(sources, scientific_query, "overall", "overall-scientific")
+    closeup_web = _web_page_candidates(sources, scientific_query, "closeup", "closeup-scientific")
+    overall_commons = _commons_candidates(scientific_query, "overall", "overall-commons")
+    closeup_commons = _commons_candidates(scientific_query, "closeup", "closeup-commons")
 
-    # 전체 모습과 근접 모습에 같은 원본 사진이 동시에 선택되지 않도록 제거한다.
+    # 오래된 흑백 식물도감·삽화가 상단으로 올라오지 않도록 Commons 점수를 낮춘다.
+    for item in [*overall_commons, *closeup_commons]:
+        title_text = f"{item.get('title','')} {item.get('image_description','')}".lower()
+        penalty_words = ("illustration", "plate", "drawing", "engraving", "herbarium", "flora", "189", "190", "191")
+        item["relevance_score"] = int(item.get("relevance_score", 0)) - 120 - sum(25 for word in penalty_words if word in title_text)
+
+    overall = _dedupe_images([*overall_web, *overall_commons], limit=10)
+    closeup = _dedupe_images([*closeup_web, *closeup_commons], limit=10)
     if overall:
-        overall_first_url = overall[0].get("download_url") or overall[0].get("preview_url")
-        filtered_closeup = [
-            item for item in closeup
-            if (item.get("download_url") or item.get("preview_url")) != overall_first_url
-        ]
-        if filtered_closeup:
-            closeup = filtered_closeup
-            closeup[0]["recommended"] = True
-
-    if not overall:
-        overall = []
-
-    if not closeup:
-        # 근접 키워드가 없는 경우에도 같은 종의 다른 사진을 후보로 제공한다.
-        # 연관 없는 종은 required_terms 검사에서 이미 제외된다.
-        broad_species = _dedupe_images(
-            _commons_candidates(scientific_query, "overall", "closeup-fallback"),
-            limit=10,
-        )
-        used_urls = {
-            item.get("download_url") or item.get("preview_url")
-            for item in overall[:2]
-        }
-        closeup = [
-            {**item, "role": "closeup", "recommended": False}
-            for item in broad_species
-            if (item.get("download_url") or item.get("preview_url")) not in used_urls
-        ]
-        if closeup:
-            closeup[0]["recommended"] = True
-
-    if not closeup:
-        closeup = []
+        overall[0]["recommended"] = True
+        used = overall[0].get("download_url") or overall[0].get("preview_url")
+        closeup = [item for item in closeup if (item.get("download_url") or item.get("preview_url")) != used]
+    if closeup:
+        closeup[0]["recommended"] = True
 
     web_sources = [
         {

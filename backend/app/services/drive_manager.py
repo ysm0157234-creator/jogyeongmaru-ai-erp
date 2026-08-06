@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 
 from app.core.config import get_settings
 from app.services.drive_service import DriveFile, DriveOperationError, FOLDER_MIME, GoogleDriveService
-from app.services.invoice_processor import create_invoice_extract_xlsx, extract_invoice_pdf_pages, filter_invoice_xlsx
+from app.services.invoice_processor import (
+    extract_target_quantity,
+    update_invoice_pdf_quantity,
+    update_invoice_xlsx_quantity,
+)
 from app.services.service_errors import RequiredFileMissingError
 from app.services.shipment_parser import find_variety_in_workbook
 from app.services.upload_service import UploadError, get_upload
@@ -175,15 +180,20 @@ def manual_file(draft_data: dict, role: str) -> tuple[bytes | None, str]:
 
 
 def process_invoice(file: DriveFile, data: bytes, variety: str, shipment: str, values: dict) -> tuple[bytes, str]:
-    try:
-        if file.name.lower().endswith((".xlsx", ".xlsm")):
-            return filter_invoice_xlsx(data, variety, shipment), f"06_{safe(variety)}_신고용_invoice.xlsx"
-        if file.name.lower().endswith(".pdf"):
-            output, _ = extract_invoice_pdf_pages(data, variety)
-            return output, f"06_{safe(variety)}_신고용_invoice.pdf"
-    except Exception:
-        pass
-    return create_invoice_extract_xlsx(variety, shipment, values, file.name), f"06_{safe(variety)}_신고용_invoice_발췌.xlsx"
+    """원본 Invoice 형식은 유지하고 Shipment Overview 수량만 반영한다."""
+    quantity = extract_target_quantity(values)
+    lower_name = file.name.lower()
+    if lower_name.endswith((".xlsx", ".xlsm")):
+        output = update_invoice_xlsx_quantity(data, variety, quantity, keep_vba=lower_name.endswith(".xlsm"))
+        suffix = ".xlsm" if lower_name.endswith(".xlsm") else ".xlsx"
+        return output, f"06_{safe(variety)}_신고용_invoice_원본형식{suffix}"
+    if lower_name.endswith(".pdf"):
+        output, changed = update_invoice_pdf_quantity(data, variety, quantity)
+        label = "수량수정" if changed else "원본유지"
+        return output, f"06_{safe(variety)}_신고용_invoice_{label}.pdf"
+    # 알 수 없는 형식도 새 발췌본을 만들지 않고 원본 그대로 첨부한다.
+    extension = Path(file.name).suffix or ".bin"
+    return data, f"06_{safe(variety)}_신고용_invoice_원본유지{extension}"
 
 
 def collect_drive_assets(variety_name: str, draft_data: dict) -> DriveAssets:
