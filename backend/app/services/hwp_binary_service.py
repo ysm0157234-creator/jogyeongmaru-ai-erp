@@ -101,7 +101,13 @@ def _serialize_records(records: list[HwpRecord]) -> bytes:
 
 
 def _apply_text(records: list[HwpRecord], replace) -> int:
-    """PARA_TEXT 레코드에 replace(문자열)->문자열 을 적용하고 글자 수 정합성을 맞춘다."""
+    """PARA_TEXT에 replace(문자열)->문자열 을 적용하고 문단 글자 수를 맞춘다.
+
+    주의: PARA_CHAR_SHAPE(글자모양)·PARA_LINE_SEG(줄정보)는 건드리지 않는다.
+    이 레코드들이 가진 글자 위치가 새 본문 길이를 넘어가도 한글은 문제 삼지 않고
+    다시 계산한다. 반면 **PARA_HEADER가 두 레코드의 항목 개수를 따로 기록**하고 있어서,
+    항목을 지우면 개수가 어긋나 그때는 정말로 문서가 깨진다.
+    """
     changed = 0
     last_header: HwpRecord | None = None
 
@@ -117,13 +123,19 @@ def _apply_text(records: list[HwpRecord], replace) -> int:
         if updated == text:
             continue
 
+        # 치환 결과가 문단끝 표시만 남으면(값이 빈 경우) 문단 길이가 1이 된다.
+        # 한글 서식 원본에는 길이 1짜리 문단이 하나도 없고, 실제로 이런 문단이 생기면
+        # 한글이 "파일이 손상되었습니다"로 판정한다. 최소한 공백 한 칸은 남긴다.
+        if not any(ord(char) >= 32 for char in updated):
+            updated = " " + updated
+
         new_payload = updated.encode("utf-16-le")
-        # 글자 수 = UTF-16 코드 유닛 수. 문단 헤더의 글자 수도 같은 만큼 조정한다.
+        # 글자 수 = UTF-16 코드 유닛 수. 최상위 비트는 플래그라 더하기로 그대로 보존된다.
         delta = (len(new_payload) - len(record.payload)) // 2
         if delta and last_header is not None and len(last_header.payload) >= 4:
             count = struct.unpack_from("<I", last_header.payload, 0)[0]
             body = bytearray(last_header.payload)
-            struct.pack_into("<I", body, 0, max(0, count + delta))
+            struct.pack_into("<I", body, 0, count + delta)
             last_header.payload = bytes(body)
 
         record.payload = new_payload
