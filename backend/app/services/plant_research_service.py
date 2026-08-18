@@ -14,7 +14,12 @@ from app.services.google_search_service import (
     GoogleSearchService,
     WebSearchResult,
 )
-from app.services.google_image_crawler import search_google_images
+# Google 이미지 검색은 결과를 JavaScript로만 렌더링해서 HTML 크롤링으로는 사진 URL을
+# 얻을 수 없다(status=200이지만 <img> 0개). 헤드리스 브라우저 없이는 불가능하므로
+# 파이프라인에서 제외하고 DuckDuckGo가 그 자리를 대신한다. google_image_crawler.py는
+# 나중에 브라우저 렌더링을 붙일 경우를 대비해 파일만 남겨둔다.
+from app.services.inaturalist_service import search_inaturalist_photos
+from app.services.duckduckgo_image_service import search_duckduckgo_images
 from app.services.bing_image_service import search_bing_images
 from app.services.web_image_service import extract_page_images
 
@@ -23,7 +28,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v23-image-relevance-ranking"
+BUILD_VERSION = "v24-inaturalist-duckduckgo-images"
 
 
 def _norm(value: Any) -> str:
@@ -217,7 +222,39 @@ def _source_text(
 _JUNK_IMAGE_EXTENSIONS = (".svg", ".gif", ".ico", ".bmp")
 
 # 점수 계산에 쓸 최대 후보 수. 검색 순위가 낮은 뒤쪽은 관련도가 급격히 떨어진다.
-_MAX_IMAGE_POOL = 30
+_MAX_IMAGE_POOL = 40
+
+# 소스별 기준 점수.
+# iNaturalist는 사진이 분류군 ID에 직접 묶여 있어 종이 틀릴 수 없다. 그래서 가장 높다.
+# 일반 이미지 검색은 '검색어와 비슷해 보이는' 사진이라 그 아래에 둔다.
+# 근접사진(closeup)에서는 iNaturalist가 꽃 클로즈업이라는 보장이 없으므로 기준점을 낮춘다.
+_SOURCE_BASE = {
+    "inaturalist": {"overall": 120, "closeup": 90},
+    "duckduckgo-images": {"overall": 80, "closeup": 85},
+    "bing-images": {"overall": 70, "closeup": 75},
+}
+_DEFAULT_SOURCE_BASE = 60
+
+# 스톡사진·쇼핑몰은 워터마크가 박혀 있거나 씨앗 봉투·상품 사진이라 보고서에 쓸 수 없다.
+# 실제로 "관련 없는 사진"으로 보이던 상위 결과 상당수가 여기에 해당했다.
+_STOCK_AND_SHOP_DOMAINS = (
+    "alamy.", "shutterstock.", "gettyimages.", "istockphoto.", "dreamstime.",
+    "123rf.", "depositphotos.", "vecteezy.", "freepik.", "stock.adobe.",
+    "canstockphoto.", "bigstockphoto.", "agefotostock.", "picfair.",
+    "amazon.", "ebay.", "aliexpress.", "etsy.", "desertcart.", "walmart.",
+    "bigcommerce.com", "myshopify.com", "coupang.", "11st.co", "gmarket.",
+)
+_STOCK_PENALTY = 55
+
+# 품종명이 제목·URL에 실제로 들어 있을 때 주는 가점.
+# iNaturalist는 종까지만 구분하므로, 품종이 지정된 건은 품종 사진이 종 사진을 이겨야 한다.
+# (예: Acer palmatum 'Bloodgood'는 잎이 붉은데 종 단위 Acer palmatum 사진은 녹색이다.)
+_CULTIVAR_BONUS = 60
+
+
+def _is_stock_or_shop(url: str) -> bool:
+    lowered = str(url or "").lower()
+    return any(domain in lowered for domain in _STOCK_AND_SHOP_DOMAINS)
 
 
 def _is_usable_photo(image: Any) -> bool:
@@ -243,6 +280,7 @@ def _image_candidates(
     role: str,
     prefix: str,
     variety_name: str,
+    cultivar: str = "",
 ) -> list[dict[str, Any]]:
     """images는 .title/.image_url/.thumbnail_url/.context_url/.display_link/.width/.height
     속성을 갖는 객체 리스트면 된다 (google_image_crawler.CrawledImage, bing_image_service.CrawledImage 등).
@@ -251,7 +289,9 @@ def _image_candidates(
     검색어가 이미 학명이므로 이 순서가 우리가 가진 가장 강한 관련도 신호이고,
     점수 체계는 이 순서를 뒤집지 않고 보정만 하도록 설계되어 있다."""
     terms = _terms(variety_name)
+    cultivar_key = _norm(cultivar)
     output: list[dict[str, Any]] = []
+    source_ranks: dict[str, int] = {}
     position = 0
 
     for image in images:
@@ -278,14 +318,32 @@ def _image_candidates(
             )
         )
 
-        # 1) 검색 순위 점수 — 기본 뼈대. 앞에 있을수록 높다.
-        rank_score = max(0, 100 - position * 4)
-        # 2) 텍스트 일치 가점 — 파일명·제목·원본페이지에 학명이 있으면 끌어올린다.
+        # 1) 소스 기준점 — iNaturalist처럼 종이 보장된 소스를 위에 둔다.
+        source = str(getattr(image, "source", "") or "")
+        source_base = _SOURCE_BASE.get(source, {}).get(role, _DEFAULT_SOURCE_BASE)
+
+        # 2) 소스 안에서의 검색 순위 점수. 순위는 소스별로 따로 센다.
+        #    (섞인 목록의 전역 위치로 계산하면 뒤에 붙은 소스가 부당하게 손해를 본다.)
+        rank = source_ranks.get(source, 0)
+        source_ranks[source] = rank + 1
+        rank_score = max(0, 60 - rank * 5)
+
+        # 3) 텍스트 일치 가점 — 파일명·제목·원본페이지에 학명이 있으면 끌어올린다.
         #    (없다고 버리지는 않는다. 정상 사진도 파일명이 무의미한 경우가 많다.)
         text_bonus = _score(searchable, terms) * 2
-        # 3) 도메인 가중치는 원래 텍스트 출처용이라 이미지에서는 동점 처리용으로만 쓴다.
-        #    그대로 더하면 40~100점이 관련도 신호를 덮어버린다.
+
+        # 4) 도메인 조정. 스톡사진·쇼핑몰은 크게 감점하고,
+        #    식물 전문 사이트 가점은 동점 처리용으로만 쓴다(그대로 더하면 관련도를 덮는다).
         domain_bonus = _domain_priority(image.context_url) // 10
+        if _is_stock_or_shop(image.context_url) or _is_stock_or_shop(image.image_url):
+            domain_bonus -= _STOCK_PENALTY
+
+        # 5) 품종명 일치 가점.
+        cultivar_bonus = (
+            _CULTIVAR_BONUS
+            if cultivar_key and cultivar_key in _norm(searchable)
+            else 0
+        )
 
         item = {
             "id": f"{prefix}-{position + 1}",
@@ -312,7 +370,11 @@ def _image_candidates(
             "recommended": False,
             "research_query": variety_name,
             "search_rank": position + 1,
-            "relevance_score": rank_score + text_bonus + domain_bonus,
+            "image_source": source,
+            "matched_cultivar": bool(cultivar_bonus),
+            "relevance_score": (
+                source_base + rank_score + text_bonus + domain_bonus + cultivar_bonus
+            ),
             "width": image.width,
             "height": image.height,
         }
@@ -433,22 +495,36 @@ def _crawled_image_candidates(
     role: str,
     prefix: str,
     *,
-    min_before_bing: int = 6,
+    min_before_bing: int = 8,
 ) -> list[dict[str, Any]]:
-    """Google 이미지 검색 결과를 API 없이 HTML 크롤링해서 후보를 모으고,
-    결과가 부족하거나 차단되면 Bing 이미지 크롤링으로 보강한다(무료, 요금 없음).
+    """품종 사진 후보를 관련도 순서를 보존한 채 모은다.
 
-    Wikimedia Commons는 흑백 고서 이미지 위주라 더 이상 소스로 쓰지 않는다.
+    1순위 iNaturalist — 사진이 분류군 ID에 묶여 있어 종이 틀릴 수 없다(품종까지는 구분 못 함).
+    2순위 DuckDuckGo 이미지 검색 — 품종명까지 반영된 웹 사진. Google 자리를 대신한다.
+    3순위 Bing 이미지 검색 — 위 둘로 부족할 때 보강.
+
+    Google 이미지 검색은 결과가 JavaScript로만 렌더링되어 HTML 크롤링이 불가능하고,
+    Wikimedia Commons는 흑백 고서 삽화 위주라 둘 다 쓰지 않는다.
     """
     identity = _clean_scientific_name(scientific_name) or scientific_name
     parts = identity.split()
     search_identity = " ".join(parts[:2])
     cultivar_match = re.search(r"['\"]([^'\"]+)['\"]", identity)
-    if cultivar_match:
-        search_identity += f" {cultivar_match.group(1)}"
+    cultivar = cultivar_match.group(1) if cultivar_match else ""
+    if cultivar:
+        search_identity += f" {cultivar}"
 
     queries = _crawl_queries(search_identity, role)
     seen_urls: set[str] = set()
+
+    def keep(images: list[Any]) -> list[Any]:
+        kept: list[Any] = []
+        for image in images:
+            if not image.image_url or image.image_url in seen_urls:
+                continue
+            seen_urls.add(image.image_url)
+            kept.append(image)
+        return kept
 
     def collect(searcher, label: str) -> list[list[Any]]:
         """쿼리별 결과를 검색엔진이 준 순위 그대로 각각 담아서 돌려준다."""
@@ -459,34 +535,33 @@ def _crawled_image_candidates(
                 found = searcher(query, limit=10)
             except Exception as exc:
                 print(
-                    f"[plant_research_service] {label} crawl failed query={query!r} error={exc}",
+                    f"[plant_research_service] {label} search failed query={query!r} error={exc}",
                     flush=True,
                 )
                 found = []
-
-            bucket: list[Any] = []
-            for image in found:
-                if not image.image_url or image.image_url in seen_urls:
-                    continue
-                seen_urls.add(image.image_url)
-                bucket.append(image)
-
-            buckets.append(bucket)
+            buckets.append(keep(found))
 
         return buckets
 
-    raw = _interleave(collect(search_google_images, "google"))
-    google_count = len(raw)
+    # 종이 보장된 사진부터 확보한다. 품종명이 붙어 있어도 iNaturalist는 종 단위로만 조회한다.
+    try:
+        raw = keep(search_inaturalist_photos(" ".join(parts[:2]), limit=10))
+    except Exception as exc:
+        print(f"[plant_research_service] inaturalist failed name={identity!r} error={exc}", flush=True)
+        raw = []
+    inat_count = len(raw)
 
-    # 구글 크롤링이 차단되었거나 후보가 부족하면 Bing 이미지 크롤링으로 보강한다.
+    raw.extend(_interleave(collect(search_duckduckgo_images, "duckduckgo")))
+    ddg_count = len(raw) - inat_count
+
     if len(raw) < min_before_bing:
         raw.extend(_interleave(collect(search_bing_images, "bing")))
 
-    result = _image_candidates(raw, role, prefix, search_identity)
+    result = _image_candidates(raw, role, prefix, search_identity, cultivar)
     print(
         f"[plant_research_service] role={role} identity={search_identity!r} "
-        f"google_raw={google_count} total_raw={len(raw)} scored_candidates={len(result)} "
-        f"top={[ (item['search_rank'], item['relevance_score'], item['title'][:40]) for item in result[:3] ]}",
+        f"inat={inat_count} ddg={ddg_count} total_raw={len(raw)} scored={len(result)} "
+        f"top={[(item['image_source'], item['relevance_score'], item['title'][:38]) for item in result[:3]]}",
         flush=True,
     )
     return result
