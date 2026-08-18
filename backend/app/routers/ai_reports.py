@@ -16,7 +16,11 @@ from app.schemas.ai_draft import AIDraftResponse, AIDraftUpdateRequest, AIGenera
 from app.services.drive_service import DriveNotConfiguredError, DriveOperationError
 from app.services.gemini_service import GeminiError, GeminiNotConfiguredError
 from app.services.google_search_service import GoogleSearchNotConfiguredError
-from app.services.plant_research_service import PlantResearchError, research_variety
+from app.services.plant_research_service import (
+    BUILD_VERSION,
+    PlantResearchError,
+    research_variety,
+)
 from app.services.service_errors import RequiredFileMissingError
 from app.services.workflow import run_workflow
 from app.services.upload_service import UploadError, get_upload, save_upload
@@ -24,7 +28,9 @@ from .deps import get_current_user
 
 router = APIRouter(prefix="/api/ai-reports", tags=["ai-reports"])
 
-BUILD_VERSION = "v21.1-original-invoice-color-images"
+# BUILD_VERSION은 plant_research_service.py 한 곳에서만 관리한다.
+# (이전에는 이 파일에 별도 상수가 있어서, 실제 조사 로직이 바뀌어도
+#  응답에는 구버전 문자열이 그대로 찍혀 배포 확인이 불가능했다.)
 
 
 def get_owned_draft(db: Session, draft_id: int, user: User) -> AIDraft:
