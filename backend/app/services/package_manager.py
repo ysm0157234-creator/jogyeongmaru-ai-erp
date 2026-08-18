@@ -17,7 +17,7 @@ def safe(value: str) -> str:
 def build_manifest(variety_name: str, draft_data: dict, assets: DriveAssets, documents: DocumentBundle, warnings: list[str]) -> dict:
     final_name = draft_data.get("matched_name") or variety_name
     return {
-        "build_version": "v21.1-original-invoice-color-images",
+        "build_version": "v26-hwp-submission-document",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "variety": variety_name,
         "matched_name": final_name,
@@ -32,7 +32,7 @@ def build_manifest(variety_name: str, draft_data: dict, assets: DriveAssets, doc
         "invoice": assets.invoice_name,
         "quarantine": assets.quarantine_name,
         "quarantine_number": assets.quarantine_number,
-        "report_formats": ["DOCX", *(["HWPX"] if documents.hwpx else [])],
+        "report_formats": ["HWP"] if documents.hwp else (["HWPX"] if documents.hwpx else ["DOCX"]),
         "warnings": warnings,
     }
 
@@ -49,9 +49,15 @@ def build_package(
     output = io.BytesIO()
     base = safe(variety_name)
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        if documents.hwpx:
+        # 국립종자원 제출본은 한글 .hwp다. .hwp가 만들어졌으면 그것만 넣고,
+        # 실패했을 때만 예비본 .hwpx를 대신 넣는다(워드는 제출 서식이 아니라 넣지 않는다).
+        if documents.hwp:
+            archive.writestr(f"{base}/01_품종_생산수입판매_신고서_검토안.hwp", documents.hwp)
+        elif documents.hwpx:
             archive.writestr(f"{base}/01_품종_생산수입판매_신고서_검토안.hwpx", documents.hwpx)
-        archive.writestr(f"{base}/01_품종_생산수입판매_신고서_호환용.docx", documents.docx)
+        else:
+            # 한글 형식이 둘 다 실패한 경우에만 최후 수단으로 워드를 넣는다.
+            archive.writestr(f"{base}/01_품종_생산수입판매_신고서_검토안.docx", documents.docx)
         if assets.quarantine_data:
             archive.writestr(f"{base}/02_{safe(assets.quarantine_name or '검역서류')}", assets.quarantine_data)
         if assets.invoice_output:
