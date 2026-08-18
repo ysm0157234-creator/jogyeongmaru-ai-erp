@@ -13,7 +13,7 @@ iNaturalist는 사진이 **분류군 ID(taxon id)에 직접 묶여 있고** 커�
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
@@ -66,7 +66,7 @@ def _license_label(code: str | None) -> str:
     return _LICENSE_LABELS.get(str(code).lower(), str(code).upper())
 
 
-def find_taxon(scientific_name: str, *, timeout: int = 15) -> dict | None:
+def find_taxon(scientific_name: str, *, timeout: int = 8) -> dict | None:
     """학명으로 분류군을 찾는다. 종 단위 매칭을 우선한다."""
     query = quote_plus(scientific_name.strip())
     if not query:
@@ -83,20 +83,32 @@ def find_taxon(scientific_name: str, *, timeout: int = 15) -> dict | None:
     return None
 
 
+# 전체사진·근접사진이 같은 학명을 각각 조회하면 동일한 요청이 두 번 나간다.
+# 조사 1건 동안만 유효하면 되므로 간단한 프로세스 내 캐시로 충분하다.
+_PHOTO_CACHE: dict[tuple[str, int], list[CrawledImage]] = {}
+
+
 def search_inaturalist_photos(
     scientific_name: str,
     *,
     limit: int = 12,
-    timeout: int = 15,
+    timeout: int = 8,
 ) -> list[CrawledImage]:
     """학명에 해당하는 분류군의 검증된 사진을 모은다.
 
     1순위: taxon_photos — iNaturalist가 그 분류군의 대표로 큐레이션한 사진
     2순위: 연구등급(research grade) 관찰 사진 — 커뮤니티가 종 동정에 합의한 관찰
     """
+    cache_key = (scientific_name.strip().lower(), limit)
+    cached = _PHOTO_CACHE.get(cache_key)
+    if cached is not None:
+        print(f"[inaturalist_service] cache hit name={scientific_name!r} photos={len(cached)}", flush=True)
+        return [replace(image) for image in cached]
+
     taxon = find_taxon(scientific_name, timeout=timeout)
     if not taxon:
         print(f"[inaturalist_service] taxon not found name={scientific_name!r}", flush=True)
+        _PHOTO_CACHE[cache_key] = []
         return []
 
     taxon_id = taxon.get("id")
@@ -158,4 +170,5 @@ def search_inaturalist_photos(
         f"taxon_id={taxon_id} observations={taxon.get('observations_count')} photos={len(output)}",
         flush=True,
     )
-    return output[:limit]
+    _PHOTO_CACHE[cache_key] = output[:limit]
+    return [replace(image) for image in _PHOTO_CACHE[cache_key]]

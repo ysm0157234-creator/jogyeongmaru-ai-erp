@@ -57,7 +57,7 @@ class _BingImageParser(HTMLParser):
             self.records.append(data)
 
 
-def search_bing_images(query: str, *, limit: int = 20, timeout: int = 15) -> list[CrawledImage]:
+def search_bing_images(query: str, *, limit: int = 20, timeout: int = 8) -> list[CrawledImage]:
     """Bing 이미지 검색 결과를 크롤링한다. 실패해도 예외를 던지지 않고 빈 리스트를 반환한다."""
     url = _SEARCH_URL.format(query=quote_plus(query))
     request = Request(url, headers=_HEADERS)

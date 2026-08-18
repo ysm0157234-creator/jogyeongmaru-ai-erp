@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from app.services.gemini_service import (
@@ -28,7 +29,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v24-inaturalist-duckduckgo-images"
+BUILD_VERSION = "v25-parallel-image-search"
 
 
 def _norm(value: Any) -> str:
@@ -527,35 +528,49 @@ def _crawled_image_candidates(
         return kept
 
     def collect(searcher, label: str) -> list[list[Any]]:
-        """쿼리별 결과를 검색엔진이 준 순위 그대로 각각 담아서 돌려준다."""
-        buckets: list[list[Any]] = []
+        """쿼리별 결과를 검색엔진이 준 순위 그대로 각각 담아서 돌려준다.
 
-        for query in queries:
+        검색은 전부 네트워크 대기라 순차로 돌리면 왕복시간이 그대로 쌓인다.
+        병렬로 던지고 결과만 쿼리 순서대로 모으면 순위는 그대로 보존되면서 시간만 줄어든다."""
+
+        def run(query: str) -> list[Any]:
             try:
-                found = searcher(query, limit=10)
+                return searcher(query, limit=10)
             except Exception as exc:
                 print(
                     f"[plant_research_service] {label} search failed query={query!r} error={exc}",
                     flush=True,
                 )
-                found = []
-            buckets.append(keep(found))
+                return []
 
-        return buckets
+        with ThreadPoolExecutor(max_workers=len(queries)) as pool:
+            results = list(pool.map(run, queries))
 
-    # 종이 보장된 사진부터 확보한다. 품종명이 붙어 있어도 iNaturalist는 종 단위로만 조회한다.
-    try:
-        raw = keep(search_inaturalist_photos(" ".join(parts[:2]), limit=10))
-    except Exception as exc:
-        print(f"[plant_research_service] inaturalist failed name={identity!r} error={exc}", flush=True)
-        raw = []
+        return results
+
+    # iNaturalist와 DuckDuckGo는 서로 독립적이므로 동시에 던진다.
+    def fetch_inaturalist() -> list[Any]:
+        try:
+            # 품종명이 붙어 있어도 iNaturalist는 종 단위로만 조회한다.
+            return search_inaturalist_photos(" ".join(parts[:2]), limit=10)
+        except Exception as exc:
+            print(f"[plant_research_service] inaturalist failed name={identity!r} error={exc}", flush=True)
+            return []
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        inat_future = pool.submit(fetch_inaturalist)
+        ddg_future = pool.submit(collect, search_duckduckgo_images, "duckduckgo")
+        inat_images = inat_future.result()
+        ddg_buckets = ddg_future.result()
+
+    # 중복 제거는 소스 우선순위 순서대로 적용한다.
+    raw = keep(inat_images)
     inat_count = len(raw)
-
-    raw.extend(_interleave(collect(search_duckduckgo_images, "duckduckgo")))
+    raw.extend(_interleave([keep(bucket) for bucket in ddg_buckets]))
     ddg_count = len(raw) - inat_count
 
     if len(raw) < min_before_bing:
-        raw.extend(_interleave(collect(search_bing_images, "bing")))
+        raw.extend(_interleave([keep(bucket) for bucket in collect(search_bing_images, "bing")]))
 
     result = _image_candidates(raw, role, prefix, search_identity, cultivar)
     print(
@@ -1130,8 +1145,16 @@ def research_variety(
     # 2순위: 기존 Serper 웹검색 결과 페이지에서 추출한 이미지 — 크롤링 후보가 부족할 때만 보조로 붙인다.
     # Wikimedia Commons는 흑백 고서 이미지 문제로 더 이상 사용하지 않는다.
     scientific_query = generated.get("scientific_name") or name
-    overall_crawled = _crawled_image_candidates(scientific_query, "overall", "overall-crawl")
-    closeup_crawled = _crawled_image_candidates(scientific_query, "closeup", "closeup-crawl")
+    # 전체사진·근접사진 수집은 서로 독립적이라 동시에 돌린다(각각 네트워크 대기가 대부분).
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        overall_future = pool.submit(
+            _crawled_image_candidates, scientific_query, "overall", "overall-crawl"
+        )
+        closeup_future = pool.submit(
+            _crawled_image_candidates, scientific_query, "closeup", "closeup-crawl"
+        )
+        overall_crawled = overall_future.result()
+        closeup_crawled = closeup_future.result()
     overall_web = _web_page_candidates(sources, scientific_query, "overall", "overall-scientific")
     closeup_web = _web_page_candidates(sources, scientific_query, "closeup", "closeup-scientific")
 

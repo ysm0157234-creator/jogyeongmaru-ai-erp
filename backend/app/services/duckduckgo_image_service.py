@@ -52,7 +52,7 @@ def _fetch(url: str, headers: dict, timeout: int) -> bytes | None:
     return None
 
 
-def search_duckduckgo_images(query: str, *, limit: int = 20, timeout: int = 15) -> list[CrawledImage]:
+def search_duckduckgo_images(query: str, *, limit: int = 20, timeout: int = 8) -> list[CrawledImage]:
     """DuckDuckGo 이미지 검색 결과를 관련도 순서 그대로 수집한다.
 
     실패해도 예외를 던지지 않고 빈 리스트를 반환해서 상위 파이프라인이 다음 소스로 넘어가게 한다.
