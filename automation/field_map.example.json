@@ -1,0 +1,22 @@
+{
+  "_설명": "dump_form.py가 만든 form_dump.json을 보고 selector를 채운다. kind는 text(기본)/select/check.",
+  "_프레임": "화면이 iframe을 쓰면 각 항목에 \"frame\": \"주소일부\"를 추가한다.",
+  "fields": {
+    "신고인_성명":        { "selector": "#여기에_실제_선택자" },
+    "신고인_생년월일":     { "selector": "#여기에_실제_선택자" },
+    "신고인_주소":        { "selector": "#여기에_실제_선택자" },
+    "신고인_법인명칭":     { "selector": "#여기에_실제_선택자" },
+    "신고인_전화번호":     { "selector": "#여기에_실제_선택자" },
+    "작물_일반명":        { "selector": "#여기에_실제_선택자" },
+    "작물_학명":          { "selector": "#여기에_실제_선택자" },
+    "품종_명칭":          { "selector": "#여기에_실제_선택자" },
+    "원산지":            { "selector": "#여기에_실제_선택자" },
+    "종자업_등록번호":     { "selector": "#여기에_실제_선택자" },
+    "검역합격_발급번호":   { "selector": "#여기에_실제_선택자" }
+  },
+  "attachments": {
+    "신고서":           { "selector": "input[type=file]#여기에_실제_선택자" },
+    "검역합격증명서":     { "selector": "input[type=file]#여기에_실제_선택자" },
+    "인보이스":          { "selector": "input[type=file]#여기에_실제_선택자" }
+  }
+}

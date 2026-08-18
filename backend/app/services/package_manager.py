@@ -6,7 +6,7 @@ import re
 import zipfile
 from datetime import datetime, timezone
 
-from app.services.document_manager import DocumentBundle
+from app.services.document_manager import COMPANY, DocumentBundle
 from app.services.drive_manager import DriveAssets
 
 
@@ -34,6 +34,22 @@ def build_manifest(variety_name: str, draft_data: dict, assets: DriveAssets, doc
         "quarantine_number": assets.quarantine_number,
         "report_formats": ["HWP"] if documents.hwp else (["HWPX"] if documents.hwpx else ["DOCX"]),
         "warnings": warnings,
+        # 국립종자원(seednet) 신고 자동입력이 그대로 쓰는 값. 서식 ①~⑨란과 1:1로 맞춘다.
+        "report_fields": {
+            "신고인_성명": COMPANY["representative"],
+            "신고인_생년월일": COMPANY["birth_date"],
+            "신고인_주소": COMPANY["address"],
+            "신고인_법인명칭": COMPANY["company_name"],
+            "신고인_전화번호": COMPANY["phone"],
+            "작물_일반명": str(draft_data.get("korean_name") or final_name),
+            "작물_학명": str(draft_data.get("scientific_name") or ""),
+            "품종_명칭": str(draft_data.get("cultivar") or final_name),
+            "원산지": str(draft_data.get("origin") or ""),
+            "종자업_등록번호": COMPANY["seed_business_number"],
+            "검역합격_발급번호": assets.quarantine_number or "",
+            "품종_특성설명": str(draft_data.get("characteristics_draft") or ""),
+            "육성과정_설명": str(draft_data.get("breeding_process_draft") or ""),
+        },
     }
 
 
