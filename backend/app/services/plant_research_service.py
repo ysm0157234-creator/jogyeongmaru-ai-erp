@@ -23,7 +23,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v22-google-bing-image-crawl"
+BUILD_VERSION = "v23-image-relevance-ranking"
 
 
 def _norm(value: Any) -> str:
@@ -214,6 +214,30 @@ def _source_text(
     )
 
 
+_JUNK_IMAGE_EXTENSIONS = (".svg", ".gif", ".ico", ".bmp")
+
+# 점수 계산에 쓸 최대 후보 수. 검색 순위가 낮은 뒤쪽은 관련도가 급격히 떨어진다.
+_MAX_IMAGE_POOL = 30
+
+
+def _is_usable_photo(image: Any) -> bool:
+    """로고·아이콘·배너·벡터 삽화처럼 품종 사진이 될 수 없는 후보를 걸러낸다."""
+    url = str(getattr(image, "image_url", "") or "").lower().split("?")[0]
+    if url.endswith(_JUNK_IMAGE_EXTENSIONS):
+        return False
+
+    width = getattr(image, "width", None)
+    height = getattr(image, "height", None)
+    if width and height:
+        if width < 200 or height < 200:
+            return False
+        longer, shorter = max(width, height), min(width, height)
+        if shorter and longer / shorter > 3.0:
+            return False
+
+    return True
+
+
 def _image_candidates(
     images: list[Any],
     role: str,
@@ -221,14 +245,21 @@ def _image_candidates(
     variety_name: str,
 ) -> list[dict[str, Any]]:
     """images는 .title/.image_url/.thumbnail_url/.context_url/.display_link/.width/.height
-    속성을 갖는 객체 리스트면 된다 (google_image_crawler.CrawledImage, bing_image_service.CrawledImage 등)."""
+    속성을 갖는 객체 리스트면 된다 (google_image_crawler.CrawledImage, bing_image_service.CrawledImage 등).
+
+    images는 반드시 검색엔진이 내려준 관련도 순서대로 들어와야 한다.
+    검색어가 이미 학명이므로 이 순서가 우리가 가진 가장 강한 관련도 신호이고,
+    점수 체계는 이 순서를 뒤집지 않고 보정만 하도록 설계되어 있다."""
     terms = _terms(variety_name)
     output: list[dict[str, Any]] = []
+    position = 0
 
-    for index, image in enumerate(
-        images[:14],
-        1,
-    ):
+    for image in images:
+        if position >= _MAX_IMAGE_POOL:
+            break
+        if not _is_usable_photo(image):
+            continue
+
         title = (
             image.title
             or (
@@ -247,20 +278,17 @@ def _image_candidates(
             )
         )
 
-        relevance = _score(
-            searchable,
-            terms,
-        )
-
-        # 이 함수는 크롤링 이미지 검색(Google/Bing) 결과에만 쓰인다.
-        # 검색어 자체가 이미 품종 학명이므로(예: "Yucca filamentosa flower"),
-        # 개별 이미지의 파일명·대체텍스트·원본페이지 URL에 학명 문자열이
-        # 우연히 없다고 해서 버리면 정상적인 사진까지 전부 걸러진다.
-        # 최소 기본점수를 주고, 실제로 텍스트 일치가 있으면 그만큼 가점만 준다.
-        relevance = max(relevance, 30)
+        # 1) 검색 순위 점수 — 기본 뼈대. 앞에 있을수록 높다.
+        rank_score = max(0, 100 - position * 4)
+        # 2) 텍스트 일치 가점 — 파일명·제목·원본페이지에 학명이 있으면 끌어올린다.
+        #    (없다고 버리지는 않는다. 정상 사진도 파일명이 무의미한 경우가 많다.)
+        text_bonus = _score(searchable, terms) * 2
+        # 3) 도메인 가중치는 원래 텍스트 출처용이라 이미지에서는 동점 처리용으로만 쓴다.
+        #    그대로 더하면 40~100점이 관련도 신호를 덮어버린다.
+        domain_bonus = _domain_priority(image.context_url) // 10
 
         item = {
-            "id": f"{prefix}-{index}",
+            "id": f"{prefix}-{position + 1}",
             "title": title,
             "role": role,
             "preview_url": (
@@ -283,33 +311,25 @@ def _image_candidates(
             ),
             "recommended": False,
             "research_query": variety_name,
-            "relevance_score": (
-                relevance
-                + _domain_priority(
-                    image.context_url
-                )
-            ),
+            "search_rank": position + 1,
+            "relevance_score": rank_score + text_bonus + domain_bonus,
             "width": image.width,
             "height": image.height,
         }
 
         output.append(item)
+        position += 1
 
-    return sorted(
-        output,
+    # 동점일 때는 제목 가나다순이 아니라 검색 순위를 따른다.
+    # (가나다순 정렬은 사실상 무작위라 관련 없는 사진이 앞에 오는 원인이었다.)
+    output.sort(
         key=lambda item: (
-            -int(
-                item.get(
-                    "relevance_score",
-                    0,
-                )
-            ),
-            item["title"].lower(),
-        ),
+            -int(item.get("relevance_score", 0)),
+            int(item.get("search_rank", 0)),
+        )
     )
 
-
-
+    return output
 
 
 def _web_page_candidates(
@@ -392,6 +412,22 @@ def _crawl_queries(search_identity: str, role: str) -> tuple[str, ...]:
     )
 
 
+def _interleave(buckets: list[list[Any]]) -> list[Any]:
+    """쿼리별 결과를 순위별로 번갈아 배치한다.
+
+    쿼리 결과를 그냥 이어붙이면 첫 쿼리의 10위(관련도 낮음)가
+    둘째 쿼리의 1위(관련도 높음)보다 앞에 오게 된다."""
+    merged: list[Any] = []
+    depth = max((len(bucket) for bucket in buckets), default=0)
+
+    for rank in range(depth):
+        for bucket in buckets:
+            if rank < len(bucket):
+                merged.append(bucket[rank])
+
+    return merged
+
+
 def _crawled_image_candidates(
     scientific_name: str,
     role: str,
@@ -412,47 +448,49 @@ def _crawled_image_candidates(
         search_identity += f" {cultivar_match.group(1)}"
 
     queries = _crawl_queries(search_identity, role)
-
-    raw: list[Any] = []
     seen_urls: set[str] = set()
 
-    for query in queries:
-        try:
-            found = search_google_images(query, limit=10)
-        except Exception as exc:
-            print(f"[plant_research_service] google crawl failed query={query!r} error={exc}", flush=True)
-            found = []
-        for image in found:
-            if not image.image_url or image.image_url in seen_urls:
-                continue
-            seen_urls.add(image.image_url)
-            raw.append(image)
+    def collect(searcher, label: str) -> list[list[Any]]:
+        """쿼리별 결과를 검색엔진이 준 순위 그대로 각각 담아서 돌려준다."""
+        buckets: list[list[Any]] = []
 
-    google_count = len(raw)
-
-    # 구글 크롤링이 차단되었거나 후보가 부족하면 Bing 이미지 크롤링으로 보강한다.
-    if len(raw) < min_before_bing:
         for query in queries:
             try:
-                found = search_bing_images(query, limit=10)
+                found = searcher(query, limit=10)
             except Exception as exc:
-                print(f"[plant_research_service] bing crawl failed query={query!r} error={exc}", flush=True)
+                print(
+                    f"[plant_research_service] {label} crawl failed query={query!r} error={exc}",
+                    flush=True,
+                )
                 found = []
+
+            bucket: list[Any] = []
             for image in found:
                 if not image.image_url or image.image_url in seen_urls:
                     continue
                 seen_urls.add(image.image_url)
-                raw.append(image)
-            if len(raw) >= min_before_bing * 2:
-                break
+                bucket.append(image)
+
+            buckets.append(bucket)
+
+        return buckets
+
+    raw = _interleave(collect(search_google_images, "google"))
+    google_count = len(raw)
+
+    # 구글 크롤링이 차단되었거나 후보가 부족하면 Bing 이미지 크롤링으로 보강한다.
+    if len(raw) < min_before_bing:
+        raw.extend(_interleave(collect(search_bing_images, "bing")))
 
     result = _image_candidates(raw, role, prefix, search_identity)
     print(
         f"[plant_research_service] role={role} identity={search_identity!r} "
-        f"google_raw={google_count} total_raw={len(raw)} scored_candidates={len(result)}",
+        f"google_raw={google_count} total_raw={len(raw)} scored_candidates={len(result)} "
+        f"top={[ (item['search_rank'], item['relevance_score'], item['title'][:40]) for item in result[:3] ]}",
         flush=True,
     )
     return result
+
 
 def _dedupe_images(
     items: list[dict[str, Any]],
