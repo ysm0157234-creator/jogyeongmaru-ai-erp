@@ -14,7 +14,8 @@ from app.services.google_search_service import (
     GoogleSearchService,
     WebSearchResult,
 )
-from app.services.wikimedia_service import search_commons_images
+from app.services.google_image_crawler import search_google_images
+from app.services.bing_image_service import search_bing_images
 from app.services.web_image_service import extract_page_images
 
 
@@ -22,7 +23,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v21.1-original-invoice-color-images"
+BUILD_VERSION = "v22-google-bing-image-crawl"
 
 
 def _norm(value: Any) -> str:
@@ -214,11 +215,13 @@ def _source_text(
 
 
 def _image_candidates(
-    images: list[ImageSearchResult],
+    images: list[Any],
     role: str,
     prefix: str,
     variety_name: str,
 ) -> list[dict[str, Any]]:
+    """images는 .title/.image_url/.thumbnail_url/.context_url/.display_link/.width/.height
+    속성을 갖는 객체 리스트면 된다 (google_image_crawler.CrawledImage, bing_image_service.CrawledImage 등)."""
     terms = _terms(variety_name)
     output: list[dict[str, Any]] = []
 
@@ -253,7 +256,7 @@ def _image_candidates(
             continue
 
         item = {
-            "id": f"{prefix}-serper-{index}",
+            "id": f"{prefix}-{index}",
             "title": title,
             "role": role,
             "preview_url": (
@@ -268,7 +271,7 @@ def _image_candidates(
             "source_url": image.context_url,
             "source": (
                 image.display_link
-                or "Serper 이미지 검색"
+                or "이미지 검색 결과"
             ),
             "license": (
                 "제출 전 원본 페이지의 "
@@ -370,15 +373,32 @@ def _web_page_candidates(
             })
     return sorted(output, key=lambda item: (-int(item.get("relevance_score", 0)), item["title"].lower()))
 
-def _commons_candidates(
+def _crawl_queries(search_identity: str, role: str) -> tuple[str, ...]:
+    if role == "overall":
+        return (
+            f"{search_identity}",
+            f"{search_identity} plant",
+            f"{search_identity} mature plant",
+        )
+    return (
+        f"{search_identity} flower",
+        f"{search_identity} flower close up",
+        f"{search_identity} bloom",
+        f"{search_identity} inflorescence",
+    )
+
+
+def _crawled_image_candidates(
     scientific_name: str,
     role: str,
     prefix: str,
+    *,
+    min_before_bing: int = 6,
 ) -> list[dict[str, Any]]:
-    """Wikimedia Commons에서 같은 종의 사진을 찾고 용도별로 점수화한다.
+    """Google 이미지 검색 결과를 API 없이 HTML 크롤링해서 후보를 모으고,
+    결과가 부족하거나 차단되면 Bing 이미지 크롤링으로 보강한다(무료, 요금 없음).
 
-    근접사진은 flower 키워드가 검색 제목에 없어도, 설명·파일명·카테고리의
-    flower/inflorescence/leaf/foliage 단어를 이용해 후보로 인정한다.
+    Wikimedia Commons는 흑백 고서 이미지 위주라 더 이상 소스로 쓰지 않는다.
     """
     identity = _clean_scientific_name(scientific_name) or scientific_name
     parts = identity.split()
@@ -387,102 +407,38 @@ def _commons_candidates(
     if cultivar_match:
         search_identity += f" {cultivar_match.group(1)}"
 
-    identity_terms = _terms(search_identity)
-    required_terms = identity_terms[:2] if len(identity_terms) >= 2 else identity_terms
+    queries = _crawl_queries(search_identity, role)
 
-    if role == "overall":
-        queries = (
-            f'{search_identity}',
-            f'{search_identity} plant',
-            f'{search_identity} habit',
-            f'{search_identity} specimen',
-        )
-        positive_words = (
-            "whole plant", "habit", "specimen", "shrub", "tree", "garden",
-            "landscape", "rosette", "plant"
-        )
-        negative_words = (
-            "flower", "inflorescence", "blossom", "close-up", "close up",
-            "detail", "leaf detail", "pollen", "fruit detail"
-        )
-    else:
-        queries = (
-            f'{search_identity} flower',
-            f'{search_identity} inflorescence',
-            f'{search_identity} blossom',
-            f'{search_identity} leaf',
-            f'{search_identity} foliage',
-            f'{search_identity}',
-        )
-        positive_words = (
-            "flower", "flowers", "bloom", "blossom", "inflorescence",
-            "close-up", "close up", "detail", "leaf", "foliage", "bud",
-            "catkin", "petal", "stamen", "fruit"
-        )
-        negative_words = (
-            "landscape", "garden view", "whole plant", "habit", "specimen tree"
-        )
+    raw: list[Any] = []
+    seen_urls: set[str] = set()
 
-    output: list[dict[str, Any]] = []
-    seen: set[str] = set()
-
-    for query_index, query in enumerate(queries):
-        for image in search_commons_images(query, limit=30):
-            key = image.original_url or image.thumbnail_url
-            if not key or key in seen:
+    for query in queries:
+        try:
+            found = search_google_images(query, limit=10)
+        except Exception:
+            found = []
+        for image in found:
+            if not image.image_url or image.image_url in seen_urls:
                 continue
+            seen_urls.add(image.image_url)
+            raw.append(image)
 
-            searchable = " ".join((
-                image.title or "",
-                image.description or "",
-                image.description_url or "",
-                image.original_url or "",
-            ))
-            normalized = _norm(searchable)
+    # 구글 크롤링이 차단되었거나 후보가 부족하면 Bing 이미지 크롤링으로 보강한다.
+    if len(raw) < min_before_bing:
+        for query in queries:
+            try:
+                found = search_bing_images(query, limit=10)
+            except Exception:
+                found = []
+            for image in found:
+                if not image.image_url or image.image_url in seen_urls:
+                    continue
+                seen_urls.add(image.image_url)
+                raw.append(image)
+            if len(raw) >= min_before_bing * 2:
+                break
 
-            # 속명과 종소명이 둘 다 포함된 사진만 유지한다.
-            if required_terms and not all(_norm(term) in normalized for term in required_terms):
-                continue
-
-            lowered = searchable.lower()
-            positive_score = sum(12 for word in positive_words if word in lowered)
-            negative_score = sum(10 for word in negative_words if word in lowered)
-            identity_score = _score(searchable, identity_terms)
-
-            # 종명만 검색한 마지막 쿼리도 근접 후보 풀이 되도록 하되,
-            # 명시적 부위 단어가 있는 사진을 훨씬 우선한다.
-            query_bonus = max(0, 14 - query_index * 2)
-            total = identity_score + positive_score - negative_score + 55 + query_bonus
-
-            # 같은 종이 확실하면 부위 단어가 없어도 후보로 보존한다.
-            minimum = 62 if role == "closeup" else 66
-            if total < minimum:
-                continue
-
-            seen.add(key)
-            output.append({
-                "id": f"{prefix}-commons-{len(output) + 1}",
-                "title": image.title or (
-                    f"{search_identity} 전체 모습" if role == "overall"
-                    else f"{search_identity} 근접 모습"
-                ),
-                "role": role,
-                "preview_url": image.thumbnail_url,
-                "download_url": image.original_url,
-                "backup_url": image.thumbnail_url,
-                "source_url": image.description_url,
-                "source": "Wikimedia Commons",
-                "license": image.license_name or "Commons 원본 페이지에서 라이선스 확인",
-                "recommended": False,
-                "research_query": search_identity,
-                "relevance_score": total,
-                "image_description": image.description,
-            })
-
-    return sorted(
-        output,
-        key=lambda item: (-int(item.get("relevance_score", 0)), item["title"].lower()),
-    )
+    return _image_candidates(raw, role, prefix, search_identity)
 
 def _dedupe_images(
     items: list[dict[str, Any]],
@@ -1043,22 +999,17 @@ def research_variety(
         generated
     )
 
-    # Serper 웹검색에서 확인된 공식·판매 페이지의 컬러 실사를 우선한다.
-    # Wikimedia는 웹페이지 후보가 부족할 때만 보조 후보로 뒤에 붙인다.
+    # 1순위: Google 이미지 크롤링(부족/차단 시 Bing으로 자동 보강) — 실제 컬러 실사 위주.
+    # 2순위: 기존 Serper 웹검색 결과 페이지에서 추출한 이미지 — 크롤링 후보가 부족할 때만 보조로 붙인다.
+    # Wikimedia Commons는 흑백 고서 이미지 문제로 더 이상 사용하지 않는다.
     scientific_query = generated.get("scientific_name") or name
+    overall_crawled = _crawled_image_candidates(scientific_query, "overall", "overall-crawl")
+    closeup_crawled = _crawled_image_candidates(scientific_query, "closeup", "closeup-crawl")
     overall_web = _web_page_candidates(sources, scientific_query, "overall", "overall-scientific")
     closeup_web = _web_page_candidates(sources, scientific_query, "closeup", "closeup-scientific")
-    overall_commons = _commons_candidates(scientific_query, "overall", "overall-commons")
-    closeup_commons = _commons_candidates(scientific_query, "closeup", "closeup-commons")
 
-    # 오래된 흑백 식물도감·삽화가 상단으로 올라오지 않도록 Commons 점수를 낮춘다.
-    for item in [*overall_commons, *closeup_commons]:
-        title_text = f"{item.get('title','')} {item.get('image_description','')}".lower()
-        penalty_words = ("illustration", "plate", "drawing", "engraving", "herbarium", "flora", "189", "190", "191")
-        item["relevance_score"] = int(item.get("relevance_score", 0)) - 120 - sum(25 for word in penalty_words if word in title_text)
-
-    overall = _dedupe_images([*overall_web, *overall_commons], limit=10)
-    closeup = _dedupe_images([*closeup_web, *closeup_commons], limit=10)
+    overall = _dedupe_images([*overall_crawled, *overall_web], limit=10)
+    closeup = _dedupe_images([*closeup_crawled, *closeup_web], limit=10)
     if overall:
         overall[0]["recommended"] = True
         used = overall[0].get("download_url") or overall[0].get("preview_url")
@@ -1182,7 +1133,7 @@ def research_variety(
         ],
         "research_provider": {
             "web": "Serper Google Search",
-            "images": "공식 웹페이지 이미지 + Wikimedia Commons",
+            "images": "Google/Bing 이미지 크롤링 + 공식 웹페이지 이미지",
             "generation": (
                 f"Gemini {gemini_model}" if gemini_model else "Serper 검색 기반 자동 초안"
             ),
