@@ -252,8 +252,12 @@ def _image_candidates(
             terms,
         )
 
-        if relevance <= 0:
-            continue
+        # 이 함수는 크롤링 이미지 검색(Google/Bing) 결과에만 쓰인다.
+        # 검색어 자체가 이미 품종 학명이므로(예: "Yucca filamentosa flower"),
+        # 개별 이미지의 파일명·대체텍스트·원본페이지 URL에 학명 문자열이
+        # 우연히 없다고 해서 버리면 정상적인 사진까지 전부 걸러진다.
+        # 최소 기본점수를 주고, 실제로 텍스트 일치가 있으면 그만큼 가점만 준다.
+        relevance = max(relevance, 30)
 
         item = {
             "id": f"{prefix}-{index}",
