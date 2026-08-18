@@ -66,7 +66,11 @@ def search_bing_images(query: str, *, limit: int = 20, timeout: int = 15) -> lis
         with urlopen(request, timeout=timeout) as response:
             raw = response.read(3_000_000)
             charset = response.headers.get_content_charset() or "utf-8"
-    except (HTTPError, URLError, TimeoutError, OSError):
+    except HTTPError as exc:
+        print(f"[bing_image_service] HTTPError query={query!r} code={exc.code} reason={exc.reason}", flush=True)
+        return []
+    except (URLError, TimeoutError, OSError) as exc:
+        print(f"[bing_image_service] connection failed query={query!r} error={exc}", flush=True)
         return []
 
     try:
@@ -77,7 +81,8 @@ def search_bing_images(query: str, *, limit: int = 20, timeout: int = 15) -> lis
     parser = _BingImageParser()
     try:
         parser.feed(page_html)
-    except Exception:
+    except Exception as exc:
+        print(f"[bing_image_service] HTML parse failed query={query!r} error={exc}", flush=True)
         return []
 
     output: list[CrawledImage] = []
@@ -102,6 +107,16 @@ def search_bing_images(query: str, *, limit: int = 20, timeout: int = 15) -> lis
         if len(output) >= limit:
             break
 
+    print(
+        f"[bing_image_service] query={query!r} html_bytes={len(raw)} iusc_records={len(parser.records)} candidates={len(output)}",
+        flush=True,
+    )
+    if not output:
+        lowered_html = page_html.lower()
+        if "captcha" in lowered_html or "unusual traffic" in lowered_html:
+            print(f"[bing_image_service] query={query!r} BLOCKED_BY_CAPTCHA", flush=True)
+        elif len(page_html) < 5000:
+            print(f"[bing_image_service] query={query!r} SUSPICIOUSLY_SHORT_HTML snippet={page_html[:300]!r}", flush=True)
     return output
 
 

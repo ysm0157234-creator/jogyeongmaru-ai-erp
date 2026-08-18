@@ -29,6 +29,9 @@ _HEADERS = {
     ),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
+    # 클라우드 서버 IP에서 요청하면 Google이 실제 검색결과 대신
+    # 쿠키 동의(consent) 페이지를 돌려주는 경우가 흔하다. 이를 우회하기 위한 쿠키.
+    "Cookie": "CONSENT=YES+shp.gws-20231010-0-RC1.en+FX+000; SOCS=CAI",
 }
 
 # 원본 이미지 후보로 쓰지 않을 도메인(아이콘/로고/구글 자체 UI 리소스 등).
@@ -77,7 +80,12 @@ def search_google_images(query: str, *, limit: int = 20, timeout: int = 15) -> l
         with urlopen(request, timeout=timeout) as response:
             raw = response.read(3_000_000)
             charset = response.headers.get_content_charset() or "utf-8"
-    except (HTTPError, URLError, TimeoutError, OSError):
+            status = getattr(response, "status", None)
+    except HTTPError as exc:
+        print(f"[google_image_crawler] HTTPError query={query!r} code={exc.code} reason={exc.reason}", flush=True)
+        return []
+    except (URLError, TimeoutError, OSError) as exc:
+        print(f"[google_image_crawler] connection failed query={query!r} error={exc}", flush=True)
         return []
 
     try:
@@ -114,7 +122,7 @@ def search_google_images(query: str, *, limit: int = 20, timeout: int = 15) -> l
             )
         )
         if len(output) >= limit:
-            return output
+            break
 
     # 2순위: 트리플 파싱이 실패하면 일반 이미지 URL 패턴으로 보강.
     if len(output) < limit:
@@ -156,4 +164,16 @@ def search_google_images(query: str, *, limit: int = 20, timeout: int = 15) -> l
             if len(output) >= limit:
                 break
 
+    print(
+        f"[google_image_crawler] query={query!r} status={status} html_bytes={len(raw)} candidates={len(output)}",
+        flush=True,
+    )
+    if not output:
+        lowered_html = html.lower()
+        if "consent.google.com" in lowered_html or "before you continue" in lowered_html:
+            print(f"[google_image_crawler] query={query!r} BLOCKED_BY_CONSENT_PAGE", flush=True)
+        elif "captcha" in lowered_html or "unusual traffic" in lowered_html:
+            print(f"[google_image_crawler] query={query!r} BLOCKED_BY_CAPTCHA", flush=True)
+        elif len(html) < 5000:
+            print(f"[google_image_crawler] query={query!r} SUSPICIOUSLY_SHORT_HTML snippet={html[:300]!r}", flush=True)
     return output

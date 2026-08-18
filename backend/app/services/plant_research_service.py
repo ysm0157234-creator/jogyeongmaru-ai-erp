@@ -415,7 +415,8 @@ def _crawled_image_candidates(
     for query in queries:
         try:
             found = search_google_images(query, limit=10)
-        except Exception:
+        except Exception as exc:
+            print(f"[plant_research_service] google crawl failed query={query!r} error={exc}", flush=True)
             found = []
         for image in found:
             if not image.image_url or image.image_url in seen_urls:
@@ -423,12 +424,15 @@ def _crawled_image_candidates(
             seen_urls.add(image.image_url)
             raw.append(image)
 
+    google_count = len(raw)
+
     # 구글 크롤링이 차단되었거나 후보가 부족하면 Bing 이미지 크롤링으로 보강한다.
     if len(raw) < min_before_bing:
         for query in queries:
             try:
                 found = search_bing_images(query, limit=10)
-            except Exception:
+            except Exception as exc:
+                print(f"[plant_research_service] bing crawl failed query={query!r} error={exc}", flush=True)
                 found = []
             for image in found:
                 if not image.image_url or image.image_url in seen_urls:
@@ -438,7 +442,13 @@ def _crawled_image_candidates(
             if len(raw) >= min_before_bing * 2:
                 break
 
-    return _image_candidates(raw, role, prefix, search_identity)
+    result = _image_candidates(raw, role, prefix, search_identity)
+    print(
+        f"[plant_research_service] role={role} identity={search_identity!r} "
+        f"google_raw={google_count} total_raw={len(raw)} scored_candidates={len(result)}",
+        flush=True,
+    )
+    return result
 
 def _dedupe_images(
     items: list[dict[str, Any]],
