@@ -16,10 +16,6 @@
       "selector": "#crop_nm_kor",
       "field": "작물_일반명"
     },
-    "작물_학명": {
-      "selector": "#tech_nm",
-      "field": "작물_학명"
-    },
     "품종_영문명": {
       "selector": "#var_nm_eng",
       "field": "품종_명칭"
@@ -64,6 +60,11 @@
     "품종_한글명": {
       "selector": "#var_nm_kor",
       "field": "품종_한글명"
+    },
+    "작물_세부학명": {
+      "selector": "#tech_nm_sub",
+      "field": "작물_학명",
+      "note": "작물 등록부 학명(tech_nm)은 작물 선택이 채우므로 건드리지 않는다"
     }
   },
   "attachments": {

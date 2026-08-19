@@ -250,7 +250,19 @@ def main() -> int:
         print("\n신고 '작성/신규신청' 화면까지 이동한 뒤 Enter를 누르세요.")
         input("준비되면 Enter > ")
 
-        done, todo = fill(page, payload, field_map)
+        # 작물 선택이 학명·작물분류 칸을 덮어쓰므로 입력보다 먼저 수행한다.
+        todo: list[str] = []
+        crop = field_map.get("crop_search")
+        if crop:
+            picked, problem = select_crop(context, page, payload, crop)
+            if picked:
+                print(f"   + 작물 선택 = {picked}")
+            else:
+                todo.append(f"작물 검색: {problem}")
+                input("\n  작물을 팝업에서 직접 선택한 뒤 Enter > ")
+
+        done, filled_todo = fill(page, payload, field_map)
+        todo.extend(filled_todo)
 
         print("\n" + "=" * 66)
         print(f"  1단계 입력 완료: {len(done)}개")
@@ -261,15 +273,6 @@ def main() -> int:
             for line in todo:
                 print("   !", line)
         print("=" * 66)
-
-        crop = field_map.get("crop_search")
-        if crop:
-            picked, problem = select_crop(context, page, payload, crop)
-            if picked:
-                print(f"   + 작물 선택 = {picked}")
-            else:
-                todo.append(f"작물 검색: {problem}")
-                input("\n  작물을 팝업에서 직접 선택한 뒤 Enter > ")
 
         actions = field_map.get("actions_after_fill", [])
         if actions:
