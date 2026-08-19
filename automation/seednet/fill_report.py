@@ -47,42 +47,61 @@ def _target(page: Page, mapping: dict):
     raise FieldMapError(f"프레임을 찾지 못했습니다: {frame_url}")
 
 
+def _resolve(entry: dict, payload: ReportPayload) -> str:
+    """넣을 값을 정한다. value가 있으면 고정값, 없으면 ZIP에서 가져온다."""
+    if "value" in entry:
+        return str(entry["value"])
+    return str(payload.fields.get(entry["field"], ""))
+
+
 def fill(page: Page, payload: ReportPayload, field_map: dict) -> tuple[list[str], list[str]]:
     done: list[str] = []
-    failed: list[str] = []
+    todo: list[str] = []
 
-    for name, mapping in field_map.get("fields", {}).items():
-        value = payload.fields.get(name, "")
-        if not str(value).strip():
-            failed.append(f"{name}: 값이 비어 있어 건너뜀")
-            continue
-        try:
-            scope = _target(page, mapping)
-            selector = mapping["selector"]
-            kind = mapping.get("kind", "text")
-            if kind == "select":
-                scope.select_option(selector, label=str(value))
-            elif kind == "check":
+    for name, entry in field_map.get("fields", {}).items():
+        kind = entry.get("kind", "text")
+        selector = entry["selector"]
+        scope = _target(page, entry)
+
+        # 라디오·체크박스는 값이 필요 없다. 지정한 선택지를 고르기만 한다.
+        if kind in ("radio", "check"):
+            try:
                 scope.check(selector)
-            else:
-                scope.fill(selector, str(value))
-            done.append(f"{name} = {str(value)[:40]}")
-        except Exception as exc:
-            failed.append(f"{name}: {type(exc).__name__} {exc}")
+                done.append(f"{name} → {entry.get('note', selector)}")
+            except Exception as exc:
+                todo.append(f"{name}: {type(exc).__name__} {exc}")
+            continue
 
-    for label, mapping in field_map.get("attachments", {}).items():
-        path = payload.attachments.get(label)
+        value = _resolve(entry, payload)
+        if not value.strip():
+            todo.append(f"{name}: 값이 비어 있음 — 직접 입력 필요")
+            continue
+
+        try:
+            if kind == "select":
+                scope.select_option(selector, label=value)
+            else:
+                scope.fill(selector, value)
+            done.append(f"{name} = {value[:44]}")
+        except Exception as exc:
+            todo.append(f"{name}: {type(exc).__name__} {exc}")
+
+    for label, entry in field_map.get("attachments", {}).items():
+        path = payload.attachments.get(entry.get("source", label))
         if not path or not Path(path).exists():
-            failed.append(f"{label}: ZIP에 파일이 없어 건너뜀")
+            todo.append(f"{label}: ZIP에 파일이 없음")
             continue
         try:
-            scope = _target(page, mapping)
-            scope.set_input_files(mapping["selector"], str(path))
+            scope = _target(page, entry)
+            scope.set_input_files(entry["selector"], str(path))
             done.append(f"{label} 첨부 = {Path(path).name}")
         except Exception as exc:
-            failed.append(f"{label}: {type(exc).__name__} {exc}")
+            todo.append(f"{label}: 자동 첨부 실패 — 직접 첨부 필요 ({type(exc).__name__})")
 
-    return done, failed
+    for name in field_map.get("manual", []):
+        todo.append(f"{name}: 자동화 대상 아님 — 직접 처리")
+
+    return done, todo
 
 
 def main() -> int:
