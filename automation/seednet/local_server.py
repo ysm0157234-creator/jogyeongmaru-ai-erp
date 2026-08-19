@@ -12,7 +12,6 @@ ERP 웹앱(Render)에서 신고 자동입력 버튼을 누르면 여기로 ZIP�
 
 from __future__ import annotations
 
-import cgi
 import json
 import tempfile
 import threading
@@ -27,6 +26,28 @@ PORT = 8765
 
 # 한 번에 하나만 돌린다. 브라우저를 공유하기 때문이다.
 _lock = threading.Lock()
+
+
+def parse_uploaded_file(content_type: str, body: bytes) -> bytes | None:
+    """multipart 본문에서 file 부분만 꺼낸다.
+
+    표준 라이브러리 cgi 모듈은 파이썬 3.13에서 없어졌다. 직원 PC마다 파이썬
+    버전이 다를 수 있으므로 파일 하나 꺼내는 정도는 직접 처리한다.
+    """
+    if "boundary=" not in content_type:
+        return None
+
+    boundary = content_type.split("boundary=", 1)[1].strip().strip('"')
+    marker = b"--" + boundary.encode()
+
+    for part in body.split(marker):
+        head, sep, data = part.partition(b"\r\n\r\n")
+        if not sep or b'name="file"' not in head:
+            continue
+        # 각 부분 끝의 개행과 종료 표시를 걷어낸다.
+        return data.rsplit(b"\r\n", 1)[0] if data.endswith(b"\r\n") else data.rstrip(b"\r\n-")
+
+    return None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -59,14 +80,13 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            form = cgi.FieldStorage(
-                fp=self.rfile,
-                headers=self.headers,
-                environ={"REQUEST_METHOD": "POST", "CONTENT_TYPE": self.headers["Content-Type"]},
-            )
-            item = form["file"]
-            data = item.file.read()
+            length = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(length)
+            data = parse_uploaded_file(self.headers.get("Content-Type", ""), body)
         except Exception:
+            data = None
+
+        if not data:
             self._send(400, {"error": "ZIP 파일을 받지 못했습니다."})
             return
 

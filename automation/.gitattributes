@@ -1,0 +1,2 @@
+# 윈도우 배치 파일은 CRLF를 유지해야 한다.
+*.bat text eol=crlf
