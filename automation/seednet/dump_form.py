@@ -55,25 +55,45 @@ _EXTRACT = """
 """
 
 
-def _snapshot(page) -> dict:
-    dump = page.evaluate(_EXTRACT)
-    dump["frames"] = []
-    for frame in page.frames[1:]:
+def _snapshot(context) -> dict:
+    """열려 있는 모든 창(팝업 포함)과 프레임을 함께 담는다.
+
+    파일첨부·작물검색 같은 기능이 새 창으로 뜨는 경우가 많아서,
+    현재 페이지만 보면 정작 필요한 구조를 놓친다.
+    """
+    pages = []
+    for index, page in enumerate(context.pages):
         try:
-            dump["frames"].append(frame.evaluate(_EXTRACT))
+            dump = page.evaluate(_EXTRACT)
         except Exception as exc:
-            dump["frames"].append({"error": str(exc), "url": frame.url})
-    return dump
+            pages.append({"error": str(exc), "url": page.url})
+            continue
+        dump["window"] = index
+        dump["frames"] = []
+        for frame in page.frames[1:]:
+            try:
+                dump["frames"].append(frame.evaluate(_EXTRACT))
+            except Exception as exc:
+                dump["frames"].append({"error": str(exc), "url": frame.url})
+        pages.append(dump)
+    return {"windows": pages}
 
 
 def _summarize(dump: dict) -> None:
-    visible = [c for c in dump["controls"] if not c["hidden"]]
-    print(f"  URL      {dump['url']}")
-    print(f"  제목     {dump['headings'][:6]}")
-    print(f"  입력항목 {len(dump['controls'])}개 (보이는 것 {len(visible)}개), 프레임 {len(dump['frames'])}개")
-    for control in visible[:25]:
-        mark = control["label"] or control["text"]
-        print(f"    {control['tag']:<7} {control['type']:<9} name={control['name']:<18} {mark[:26]}")
+    for window in dump["windows"]:
+        if "error" in window:
+            print(f"  [창] 읽기 실패 {window['url']}: {window['error']}")
+            continue
+        visible = [c for c in window["controls"] if not c["hidden"]]
+        files = [c for c in window["controls"] if c["type"] == "file"]
+        print(f"\n  [창 {window['window']}] {window['url']}")
+        print(f"    제목 {window['headings'][:5]}")
+        print(f"    입력 {len(window['controls'])}개(보임 {len(visible)}) 프레임 {len(window['frames'])} 파일칸 {len(files)}")
+        for control in files:
+            print(f"      >> 파일칸  name={control['name']} id={control['id']} {control['label'][:24]}")
+        for control in visible[:18]:
+            mark = control["label"] or control["text"]
+            print(f"      {control['tag']:<7} {control['type']:<9} name={control['name']:<18} {mark[:24]}")
 
 
 def main() -> None:
@@ -95,7 +115,7 @@ def main() -> None:
             answer = input(f"\n[{len(snapshots)}개 캡처됨] Enter=캡처 / q=종료 > ").strip().lower()
             if answer == "q":
                 break
-            dump = _snapshot(page)
+            dump = _snapshot(context)
             snapshots.append(dump)
             print(f"\n--- {len(snapshots)}번째 캡처 ---")
             _summarize(dump)

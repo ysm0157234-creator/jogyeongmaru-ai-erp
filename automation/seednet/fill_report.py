@@ -104,6 +104,45 @@ def fill(page: Page, payload: ReportPayload, field_map: dict) -> tuple[list[str]
     return done, todo
 
 
+def attach(context, payload: ReportPayload, field_map: dict) -> tuple[list[str], list[str]]:
+    """임시저장 이후 열리는 첨부 화면에 파일을 올린다.
+
+    첨부는 [파일첨부] 팝업(대개 새 창)에서 이루어진다. 매핑에 창을 특정하는
+    url 조각과 파일칸 선택자를 적어두면 그 창을 찾아 파일을 넣는다.
+    """
+    attached: list[str] = []
+    remaining: list[str] = []
+
+    mapping = field_map.get("attachments", {})
+    if not mapping:
+        for label, path in payload.attachments.items():
+            remaining.append(f"{label}({Path(path).name}): 첨부 팝업 구조가 매핑에 없어 직접 올려야 함")
+        return attached, remaining
+
+    for label, entry in mapping.items():
+        path = payload.attachments.get(entry.get("source", label))
+        if not path or not Path(path).exists():
+            remaining.append(f"{label}: ZIP에 파일이 없음")
+            continue
+
+        window = entry.get("window")
+        target = None
+        for page in context.pages:
+            if not window or window in page.url:
+                target = page
+        if target is None:
+            remaining.append(f"{label}: 첨부 창을 찾지 못함 ({window}) — 직접 올려야 함")
+            continue
+
+        try:
+            target.set_input_files(entry["selector"], str(path))
+            attached.append(f"{label} = {Path(path).name}")
+        except Exception as exc:
+            remaining.append(f"{label}: {type(exc).__name__} — 직접 올려야 함")
+
+    return attached, remaining
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print(__doc__)
@@ -124,20 +163,41 @@ def main() -> int:
         print("\n신고 '작성/신규신청' 화면까지 이동한 뒤 Enter를 누르세요.")
         input("준비되면 Enter > ")
 
-        done, failed = fill(page, payload, field_map)
+        done, todo = fill(page, payload, field_map)
 
-        print("\n" + "=" * 62)
-        print(f"  자동 입력 완료: {len(done)}개")
+        print("\n" + "=" * 66)
+        print(f"  1단계 입력 완료: {len(done)}개")
         for line in done:
             print("   +", line)
-        if failed:
-            print(f"\n  직접 입력해야 하는 항목: {len(failed)}개")
-            for line in failed:
+        if todo:
+            print(f"\n  직접 처리할 항목: {len(todo)}개")
+            for line in todo:
                 print("   !", line)
-        print("=" * 62)
-        print("\n  신고(제출) 버튼은 누르지 않았습니다.")
-        print("  화면 내용을 확인한 뒤 직접 신고 버튼을 눌러 주세요.")
+        print("=" * 66)
+
+        # 이 사이트는 임시저장을 해야 첨부 기능이 열린다.
+        # 저장 버튼은 사람이 누른다. 자동화는 저장 이후 첨부만 돕는다.
+        print("\n  첨부는 [임시저장] 이후에만 가능합니다.")
+        print("  화면에서 직접 [임시저장]을 누르고, 첨부 화면이 열리면 Enter를 누르세요.")
+        print("  (첨부를 건너뛰려면 s 를 입력하세요)")
+        answer = input("\n  임시저장 완료 후 Enter / s=건너뛰기 > ").strip().lower()
+
+        if answer != "s":
+            attached, remaining = attach(context, payload, field_map)
+            print("\n" + "=" * 66)
+            print(f"  2단계 첨부 완료: {len(attached)}개")
+            for line in attached:
+                print("   +", line)
+            if remaining:
+                print(f"\n  직접 첨부할 항목: {len(remaining)}개")
+                for line in remaining:
+                    print("   !", line)
+            print("=" * 66)
+
+        print("\n  [종자원 접수요청] 버튼은 누르지 않았습니다.")
+        print("  화면 내용을 확인한 뒤 직접 눌러 신고를 마치세요.")
         input("\n확인이 끝나면 Enter를 눌러 이 스크립트를 종료합니다 > ")
+
     finally:
         # 사람이 제출해야 하므로 브라우저는 절대 닫지 않는다.
         close_session(playwright, browser, context, keep_open=True)
