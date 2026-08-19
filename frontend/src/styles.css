@@ -822,3 +822,9 @@ input:focus, select:focus, textarea:focus {
 .empty-photo-message { padding:16px; border:1px dashed #b7bdc7; border-radius:10px; color:#5d6673; background:#fafbfc; margin-bottom:12px; }
 .supporting-upload-grid { display:grid; grid-template-columns:max-content 1fr; align-items:center; gap:10px 16px; }
 .supporting-upload-grid .upload-button { margin:0; }
+
+/* 국립종자원 신고 자동입력 결과 */
+.seednet-result { margin-top: 12px; font-size: 13px; line-height: 1.6; }
+.seednet-result p { margin: 8px 0 4px; }
+.seednet-result ul { margin: 0; padding-left: 18px; }
+.seednet-result li { color: var(--muted, #667); }

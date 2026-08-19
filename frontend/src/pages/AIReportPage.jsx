@@ -2,6 +2,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, FileSearch, Image as ImageIcon, LoaderCircle, Pencil, Save, Search, Sparkles, X } from "lucide-react";
 import { API_URL, api, apiDownload, apiUpload } from "../services/api";
 
+// 맥에서 도는 신고 도우미. 브라우저 로그인 세션이 있는 컴퓨터에서만 동작한다.
+const HELPER_URL = "http://127.0.0.1:8765";
+
 export default function AIReportPage() {
   const [varietyName, setVarietyName] = useState("");
   const [agency, setAgency] = useState("국립종자원");
@@ -10,6 +13,9 @@ export default function AIReportPage() {
   const [driveStatus, setDriveStatus] = useState(null);
   const [error, setError] = useState("");
   const [fileLoading, setFileLoading] = useState(false);
+  const [seednetLoading, setSeednetLoading] = useState(false);
+  const [seednetStatus, setSeednetStatus] = useState("");
+  const [seednetResult, setSeednetResult] = useState(null);
   const [fileStatus, setFileStatus] = useState("");
   const [researchStatus, setResearchStatus] = useState("");
   const [currentResultData, setCurrentResultData] = useState(null);
@@ -73,6 +79,51 @@ export default function AIReportPage() {
     } finally { setFileLoading(false); }
   }
 
+  // 국립종자원 신고는 로그인된 브라우저가 있는 이 컴퓨터에서 돌아야 한다.
+  // Render 서버는 그 세션을 가질 수 없으므로, 맥에서 도는 도우미(127.0.0.1:8765)에 ZIP을 넘긴다.
+  async function fileToSeednet() {
+    setSeednetLoading(true); setError(""); setSeednetResult(null);
+    setSeednetStatus("도우미 프로그램을 확인하고 있습니다.");
+    try {
+      try {
+        const health = await fetch(`${HELPER_URL}/health`, { signal: AbortSignal.timeout(3000) });
+        if (!health.ok) throw new Error();
+      } catch {
+        throw new Error(
+          "맥에서 신고 도우미가 실행 중이 아닙니다. 터미널에서 아래를 먼저 실행하세요.\n" +
+          "cd ~/Documents/GitHub/jogyeongmaru-ai-erp/automation && python3 -m seednet.local_server"
+        );
+      }
+
+      if (currentResultData) {
+        const updated = await api(`/api/ai-reports/${draft.id}`, {
+          method: "PUT",
+          body: JSON.stringify({ result_data: currentResultData, status: "검토 완료" }),
+        });
+        setDraft(updated);
+      }
+
+      setSeednetStatus("신고 자료를 만들고 있습니다.");
+      const response = await apiDownload("/api/ai-reports/generate-files", {
+        method: "POST",
+        body: JSON.stringify({ variety_name: varietyName, agency, draft_id: draft.id }),
+      });
+      const blob = await response.blob();
+
+      setSeednetStatus("국립종자원 화면을 채우고 있습니다. 맥에 열린 브라우저를 확인하세요.");
+      const form = new FormData();
+      form.append("file", blob, "package.zip");
+      const run = await fetch(`${HELPER_URL}/run`, { method: "POST", body: form });
+      const result = await run.json();
+      if (!run.ok) throw new Error(result.error || "신고 자동입력에 실패했습니다.");
+
+      setSeednetResult(result);
+      setSeednetStatus("완료: 열린 브라우저에서 확인 후 [종자원 접수요청]을 눌러 주세요.");
+    } catch (err) {
+      setError(err.message); setSeednetStatus(`실패: ${err.message}`);
+    } finally { setSeednetLoading(false); }
+  }
+
   return <div>
     <header className="page-header"><div><p className="eyebrow">AI REPORT BUILDER</p><h1>AI 생산·판매 신고 생성</h1></div></header>
     <section className={`panel drive-status ${driveStatus?.configured ? "connected" : "disconnected"}`}>
@@ -91,6 +142,20 @@ export default function AIReportPage() {
         <div><h2>실제 신고파일 만들기</h2><p>저장한 초안과 전체샷·근접샷을 문서에 반영합니다.</p></div>
         <button className="primary-button icon-button" onClick={generateFiles} disabled={fileLoading || !driveStatus?.configured}>{fileLoading?<LoaderCircle className="spin" size={18}/>:<FileSearch size={18}/>} ZIP 생성</button>
         {fileStatus && <div className={`file-status-message ${fileStatus.startsWith("실패")?"failed":fileStatus.startsWith("완료")?"success":"working"}`}>{fileStatus}</div>}
+      </section>
+      <section className="panel actual-file-box">
+        <div>
+          <h2>국립종자원 신고 자동입력</h2>
+          <p>seednet 신고 화면을 자동으로 채웁니다. 제출 버튼은 직접 누르셔야 합니다.</p>
+        </div>
+        <button className="primary-button icon-button" onClick={fileToSeednet} disabled={seednetLoading || !driveStatus?.configured}>{seednetLoading?<LoaderCircle className="spin" size={18}/>:<FileSearch size={18}/>} 신고 자동입력</button>
+        {seednetStatus && <div className={`file-status-message ${seednetStatus.startsWith("실패")?"failed":seednetStatus.startsWith("완료")?"success":"working"}`} style={{whiteSpace:"pre-line"}}>{seednetStatus}</div>}
+        {seednetResult && <div className="seednet-result">
+          <p><strong>자동 처리 {seednetResult.done.length}건</strong></p>
+          <ul>{seednetResult.done.map((line,i)=><li key={i}>{line}</li>)}</ul>
+          <p><strong>직접 처리할 항목 {seednetResult.todo.length}건</strong></p>
+          <ul>{seednetResult.todo.map((line,i)=><li key={i}>{line}</li>)}</ul>
+        </div>}
       </section>
     </>}
   </div>;
