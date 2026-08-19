@@ -19,6 +19,33 @@ from seednet import config
 from seednet.browser import close_session, open_session
 from seednet.payload import ReportPayload, load_payload
 
+_LOG: list[str] = []
+
+
+def log(message: str) -> None:
+    """터미널과 파일에 함께 남긴다. 문제가 났을 때 이 파일만 주면 된다."""
+    print(message, flush=True)
+    _LOG.append(message)
+
+
+def _write_log() -> None:
+    try:
+        config.AUTOMATION_DIR.joinpath("last_run.log").write_text(
+            "\n".join(_LOG), encoding="utf-8"
+        )
+    except Exception:
+        pass
+
+
+def _shot(page, name: str) -> None:
+    """실패한 화면을 그림으로 남긴다."""
+    try:
+        path = config.AUTOMATION_DIR / f"last_run_{name}.png"
+        page.screenshot(path=str(path), full_page=True)
+        log(f"      화면 저장: {path.name}")
+    except Exception:
+        pass
+
 FIELD_MAP = config.FIELD_MAP
 
 
@@ -140,16 +167,35 @@ def select_crop(context, page: Page, payload: ReportPayload, entry: dict) -> tup
 
     # 팝업은 본문 '일반명' 칸의 값을 물고 열린다(팝업 URL에 crop_nm_kor로 실려 간다).
     # 그래서 팝업을 열기 전에 본문 칸부터 채운다.
+    selector = entry.get("keyword_selector", "#crop_nm_kor")
     try:
-        page.fill(entry.get("keyword_selector", "#crop_nm_kor"), keyword)
-    except Exception:
-        pass
+        page.fill(selector, keyword)
+        log(f"      본문 일반명 칸에 '{keyword}' 입력")
+    except Exception as exc:
+        # 검색으로만 채우게 막아둔 칸이면 fill이 통하지 않는다. 값을 직접 넣는다.
+        try:
+            page.evaluate(
+                "([sel, val]) => { const el = document.querySelector(sel);"
+                " el.removeAttribute('readonly'); el.value = val; }",
+                [selector, keyword],
+            )
+            log(f"      본문 일반명 칸에 '{keyword}' 직접 대입 (fill 불가: {type(exc).__name__})")
+        except Exception as exc2:
+            log(f"      본문 일반명 칸 입력 실패: {type(exc2).__name__} {exc2}")
 
-    popup = _open_popup(context, page, entry["opener"])
+    log(f"      작물검색 팝업 열기: {entry['opener']}")
+    try:
+        popup = _open_popup(context, page, entry["opener"])
+    except Exception as exc:
+        _shot(page, "crop_opener")
+        return None, f"작물 [검색] 버튼을 누르지 못했습니다: {type(exc).__name__} {str(exc)[:90]}"
+
     popup.wait_for_load_state("domcontentloaded")
     popup.wait_for_timeout(1200)
+    log(f"      팝업 주소: {popup.url[:110]}")
 
     rows = _crop_rows(popup)
+    log(f"      검색 결과 {len(rows)}건" + (f" → {[r['name'] for r in rows[:6]]}" if rows else ""))
     if not rows:
         # 팝업이 검색 없이 열렸으면 직접 검색한다.
         try:
@@ -158,10 +204,12 @@ def select_crop(context, page: Page, payload: ReportPayload, entry: dict) -> tup
             popup.wait_for_load_state("domcontentloaded")
             popup.wait_for_timeout(2500)
             rows = _crop_rows(popup)
+            log(f"      팝업 안에서 재검색 → {len(rows)}건")
         except Exception as exc:
             return None, f"작물 검색 실패: {type(exc).__name__} — 팝업에서 직접 검색·선택하세요"
 
     if not rows:
+        _shot(popup, "crop_popup")
         return None, f"'{keyword}' 검색 결과가 없음 — 팝업에서 직접 검색·선택하세요"
 
     exact = [r for r in rows if r["name"].strip() == keyword]
@@ -325,6 +373,7 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
     done: list[str] = []
     todo: list[str] = [f"입력값 없음: {name}" for name in payload.missing_fields()]
 
+    log(f"=== 신고 자동입력 시작: {payload.variety} ===")
     playwright, browser, context, page = open_session()
     page.goto(config.REPORT_LIST_URL, wait_until="domcontentloaded")
     page.wait_for_timeout(1000)
@@ -334,6 +383,8 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(2000)
     except Exception as exc:
+        log(f"   ! 신고서작성하기 진입 실패: {type(exc).__name__}")
+        _shot(page, "enter_form")
         todo.append(f"신고서작성하기 진입 실패: {type(exc).__name__} — 직접 이동하세요")
         if interactive:
             input("\n  신고 작성 화면으로 직접 이동한 뒤 Enter > ")
@@ -352,7 +403,9 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
             else:
                 crop_ok = False
 
+    log("   - 입력값 채우는 중")
     filled, filled_todo = fill(page, payload, field_map)
+    log(f"     입력 {len(filled)}건 / 직접처리 {len(filled_todo)}건")
     done.extend(filled)
     todo.extend(filled_todo)
 
@@ -377,6 +430,7 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
         )
         todo.append("[종자원 접수요청] — 내용을 확인하고 직접 누르세요")
         close_session(playwright, browser, context, keep_open=True)
+        _write_log()
         return {"variety": payload.variety, "done": done, "todo": todo}
 
     # 첨부는 임시저장 후에만 열린다.
@@ -395,6 +449,7 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
                     continue
             saved = True
             done.append("임시저장")
+            log("   - 임시저장 완료")
         except Exception as exc:
             todo.append(f"임시저장 실패: {type(exc).__name__} — 직접 누르세요")
             if interactive:
@@ -402,7 +457,9 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
                 saved = True
 
     if saved:
+        log("   - 첨부 시작")
         attached, remaining = attach(context, payload, field_map)
+        log(f"     첨부 {len(attached)}건 / 직접처리 {len(remaining)}건")
         done.extend(attached)
         todo.extend(remaining)
     else:
@@ -412,4 +469,5 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
 
     # 사람이 확인하고 제출해야 하므로 브라우저는 닫지 않는다.
     close_session(playwright, browser, context, keep_open=True)
+    _write_log()
     return {"variety": payload.variety, "done": done, "todo": todo}

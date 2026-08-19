@@ -2,3 +2,6 @@
 .seednet-session.json
 # 화면 덤프에는 신고인 성명·생년월일·주소·전화번호가 그대로 담긴다. 커밋하지 않는다.
 form_dump.json
+# 실행 로그와 실패 화면 (개인정보가 담길 수 있다)
+last_run.log
+last_run_*.png
