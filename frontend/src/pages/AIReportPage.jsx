@@ -90,8 +90,10 @@ export default function AIReportPage() {
         if (!health.ok) throw new Error();
       } catch {
         throw new Error(
-          "맥에서 신고 도우미가 실행 중이 아닙니다. 터미널에서 아래를 먼저 실행하세요.\n" +
-          "cd ~/Documents/GitHub/jogyeongmaru-ai-erp/automation && python3 -m seednet.local_server"
+          "도우미에 연결하지 못했습니다.\n" +
+          "1) Safari에서는 동작하지 않습니다. Chrome으로 열어 주세요.\n" +
+          "2) 도우미가 꺼져 있다면 터미널에서 실행하세요:\n" +
+          "   cd ~/Documents/GitHub/jogyeongmaru-ai-erp/automation && python3 -m seednet.local_server"
         );
       }
 

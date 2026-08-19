@@ -89,8 +89,22 @@ class Handler(BaseHTTPRequestHandler):
         return  # 접속 로그는 찍지 않는다.
 
 
+class ReusableServer(HTTPServer):
+    # 껐다 켤 때 포트가 잠깐 묶여 있어도 바로 다시 뜨게 한다.
+    allow_reuse_address = True
+
+
 def main() -> None:
-    server = HTTPServer((HOST, PORT), Handler)
+    try:
+        server = ReusableServer((HOST, PORT), Handler)
+    except OSError as exc:
+        if exc.errno == 48:  # Address already in use
+            print("=" * 66)
+            print("  도우미가 이미 실행 중입니다. 새로 띄우지 않아도 됩니다.")
+            print("  (다른 터미널 창을 확인하세요. 그대로 두고 웹앱 버튼을 누르면 됩니다.)")
+            print("=" * 66)
+            return
+        raise
     print("=" * 66)
     print(f"  국립종자원 신고 도우미 — http://{HOST}:{PORT}")
     print("  ERP 웹앱에서 [국립종자원 신고 자동입력] 버튼을 누르면 여기로 옵니다.")
