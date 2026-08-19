@@ -117,6 +117,16 @@ _CROP_ROWS = """
 """
 
 
+def _crop_rows(popup) -> list[dict]:
+    """검색 결과 행을 읽는다. 검색 직후에는 화면이 바뀌는 중일 수 있어 두 번 시도한다."""
+    for _ in range(2):
+        try:
+            return popup.evaluate(_CROP_ROWS)
+        except Exception:
+            popup.wait_for_timeout(1500)
+    return []
+
+
 def select_crop(context, page: Page, payload: ReportPayload, entry: dict) -> tuple[str | None, str]:
     """작물 검색 팝업에서 작물을 고른다.
 
@@ -128,12 +138,29 @@ def select_crop(context, page: Page, payload: ReportPayload, entry: dict) -> tup
     if not keyword:
         return None, "작물명이 비어 있음 — 직접 검색해야 함"
 
-    popup = _open_popup(context, page, entry["opener"])
-    popup.fill("#crop_nm_kor", keyword)
-    popup.click("a:has-text('검색')")
-    popup.wait_for_timeout(2500)
+    # 팝업은 본문 '일반명' 칸의 값을 물고 열린다(팝업 URL에 crop_nm_kor로 실려 간다).
+    # 그래서 팝업을 열기 전에 본문 칸부터 채운다.
+    try:
+        page.fill(entry.get("keyword_selector", "#crop_nm_kor"), keyword)
+    except Exception:
+        pass
 
-    rows = popup.evaluate(_CROP_ROWS)
+    popup = _open_popup(context, page, entry["opener"])
+    popup.wait_for_load_state("domcontentloaded")
+    popup.wait_for_timeout(1200)
+
+    rows = _crop_rows(popup)
+    if not rows:
+        # 팝업이 검색 없이 열렸으면 직접 검색한다.
+        try:
+            popup.fill("#crop_nm_kor", keyword)
+            popup.click("a:has-text('검색')")
+            popup.wait_for_load_state("domcontentloaded")
+            popup.wait_for_timeout(2500)
+            rows = _crop_rows(popup)
+        except Exception as exc:
+            return None, f"작물 검색 실패: {type(exc).__name__} — 팝업에서 직접 검색·선택하세요"
+
     if not rows:
         return None, f"'{keyword}' 검색 결과가 없음 — 팝업에서 직접 검색·선택하세요"
 
@@ -142,7 +169,7 @@ def select_crop(context, page: Page, payload: ReportPayload, entry: dict) -> tup
         names = ", ".join(r["name"] for r in rows[:8])
         return None, (
             f"'{keyword}'와 정확히 일치하는 작물이 {len(exact)}개 (후보: {names}) "
-            "— 팝업에서 직접 [선택]하세요"
+            "— 열린 팝업에서 직접 [선택]하세요"
         )
 
     popup.click(f"a:has-text('선택') >> nth={exact[0]['index']}")
@@ -312,6 +339,7 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
             input("\n  신고 작성 화면으로 직접 이동한 뒤 Enter > ")
 
     # 작물 선택이 학명·작물분류를 덮어쓰므로 입력보다 먼저 한다.
+    crop_ok = True
     crop = field_map.get("crop_search")
     if crop:
         picked, problem = select_crop(context, page, payload, crop)
@@ -321,6 +349,8 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
             todo.append(f"작물 검색: {problem}")
             if interactive:
                 input("\n  작물을 팝업에서 직접 선택한 뒤 Enter > ")
+            else:
+                crop_ok = False
 
     filled, filled_todo = fill(page, payload, field_map)
     done.extend(filled)
@@ -337,6 +367,17 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
     pressed, unpressed = click_actions(page, field_map.get("actions_after_fill", []))
     done.extend(pressed)
     todo.extend(unpressed)
+
+    # 작물이 정해지지 않으면 임시저장이 통과하지 못하고 첨부도 열리지 않는다.
+    # 반쯤 실패한 상태로 밀어붙이지 말고 여기서 멈춘다.
+    if not crop_ok:
+        todo.append(
+            "작물을 열린 팝업에서 직접 선택한 뒤, [임시저장]과 첨부를 이어서 진행하세요 "
+            "(자동 진행은 여기서 멈춥니다)"
+        )
+        todo.append("[종자원 접수요청] — 내용을 확인하고 직접 누르세요")
+        close_session(playwright, browser, context, keep_open=True)
+        return {"variety": payload.variety, "done": done, "todo": todo}
 
     # 첨부는 임시저장 후에만 열린다.
     save = field_map.get("save_draft")
