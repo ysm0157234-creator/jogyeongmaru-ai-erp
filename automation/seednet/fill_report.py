@@ -104,41 +104,70 @@ def fill(page: Page, payload: ReportPayload, field_map: dict) -> tuple[list[str]
     return done, todo
 
 
-def attach(context, payload: ReportPayload, field_map: dict) -> tuple[list[str], list[str]]:
-    """임시저장 이후 열리는 첨부 화면에 파일을 올린다.
+def _open_popup(context, page: Page, opener: str, timeout: int = 15000):
+    """본문의 [파일첨부] 링크를 눌러 팝업 창을 연다."""
+    before = set(context.pages)
+    with context.expect_page(timeout=timeout) as info:
+        page.click(opener)
+    popup = info.value
+    popup.wait_for_load_state("domcontentloaded")
+    if popup in before:
+        raise RuntimeError("새 창이 열리지 않았습니다.")
+    return popup
 
-    첨부는 [파일첨부] 팝업(대개 새 창)에서 이루어진다. 매핑에 창을 특정하는
-    url 조각과 파일칸 선택자를 적어두면 그 창을 찾아 파일을 넣는다.
+
+def _upload_in_popup(popup, path: Path, note: str) -> None:
+    """팝업 안에서 파일을 고르고 첨부 버튼을 누른다.
+
+    첨부 팝업은 종류가 달라도 구조가 같다(파일칸 + 설명칸 + '파일 첨부하기').
+    그래서 선택자를 종류별로 적지 않고 공통 규칙으로 찾는다.
     """
+    popup.wait_for_selector("input[type=file]", timeout=10000)
+    popup.set_input_files("input[type=file]", str(path))
+
+    if note:
+        for selector in ("#pic_rmrk", "input[name$=_rmrk]"):
+            try:
+                popup.fill(selector, note)
+                break
+            except Exception:
+                continue
+
+    popup.click("a:has-text('파일 첨부하기')")
+    popup.wait_for_timeout(1500)
+
+
+def attach(context, payload: ReportPayload, field_map: dict) -> tuple[list[str], list[str]]:
+    """임시저장 이후 열리는 [파일첨부] 팝업에 파일을 올린다."""
     attached: list[str] = []
     remaining: list[str] = []
 
+    page = context.pages[0]
     mapping = field_map.get("attachments", {})
-    if not mapping:
-        for label, path in payload.attachments.items():
-            remaining.append(f"{label}({Path(path).name}): 첨부 팝업 구조가 매핑에 없어 직접 올려야 함")
-        return attached, remaining
 
     for label, entry in mapping.items():
-        path = payload.attachments.get(entry.get("source", label))
+        source = entry.get("source", label)
+        path = payload.attachments.get(source)
         if not path or not Path(path).exists():
-            remaining.append(f"{label}: ZIP에 파일이 없음")
+            remaining.append(f"{label}: ZIP에 {source} 파일이 없음")
             continue
 
-        window = entry.get("window")
-        target = None
-        for page in context.pages:
-            if not window or window in page.url:
-                target = page
-        if target is None:
-            remaining.append(f"{label}: 첨부 창을 찾지 못함 ({window}) — 직접 올려야 함")
-            continue
-
+        popup = None
         try:
-            target.set_input_files(entry["selector"], str(path))
+            popup = _open_popup(context, page, entry["opener"])
+            _upload_in_popup(popup, Path(path), entry.get("note", ""))
             attached.append(f"{label} = {Path(path).name}")
         except Exception as exc:
-            remaining.append(f"{label}: {type(exc).__name__} — 직접 올려야 함")
+            remaining.append(f"{label}: {type(exc).__name__} {str(exc)[:70]} — 직접 올려야 함")
+        finally:
+            if popup and not popup.is_closed():
+                try:
+                    popup.close()
+                except Exception:
+                    pass
+
+    for name in field_map.get("manual_attachments", []):
+        remaining.append(f"{name}: 직접 처리")
 
     return attached, remaining
 

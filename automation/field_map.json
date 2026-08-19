@@ -1,36 +1,98 @@
 {
   "_설명": "seednet 신고서작성 화면(cvwAppMstReg.do?appl_knd=30) 입력 매핑. form_dump.json 기준.",
   "_주의": "신고인 성명·대표자·주소·전화번호는 로그인 계정 정보로 이미 채워져 있어 건드리지 않는다.",
-
   "fields": {
-    "생산수입_구분":      { "selector": "#app_symbol1", "kind": "radio", "note": "수입" },
-    "수입국가":          { "selector": "#ntnl_cd", "kind": "select", "field": "원산지" },
-
-    "작물_일반명":        { "selector": "#crop_nm_kor", "field": "작물_일반명" },
-    "작물_학명":          { "selector": "#tech_nm", "field": "작물_학명" },
-
-    "품종_영문명":        { "selector": "#var_nm_eng", "field": "품종_명칭" },
-
-    "종자제출_방식":      { "selector": "#chk2", "kind": "radio", "note": "확약서 첨부(영양번식)" },
-
-    "육성자_여부":        { "selector": "#apia_val1_2", "kind": "radio", "note": "아니오" },
-    "권리취득_방법":      { "selector": "#apia_val2_3", "kind": "radio", "note": "기타" },
-    "권리취득_기타내용":   { "selector": "#apia_val2_txt", "value": "권리 소멸 품종, 신규성 없는 유통 품종 등" },
-
-    "종자업_등록번호":     { "selector": "#seed_bsns_no", "field": "종자업_등록번호" },
-    "검역합격증명서_번호":  { "selector": "#appQuar1", "field": "검역합격_발급번호" },
-
-    "개인정보_동의1":     { "selector": "#personal_info_agre1_1", "kind": "radio", "note": "동의" },
-    "개인정보_동의2":     { "selector": "#personal_info_agre2_1", "kind": "radio", "note": "동의" }
+    "생산수입_구분": {
+      "selector": "#app_symbol1",
+      "kind": "radio",
+      "note": "수입"
+    },
+    "수입국가": {
+      "selector": "#ntnl_cd",
+      "kind": "select",
+      "field": "원산지"
+    },
+    "작물_일반명": {
+      "selector": "#crop_nm_kor",
+      "field": "작물_일반명"
+    },
+    "작물_학명": {
+      "selector": "#tech_nm",
+      "field": "작물_학명"
+    },
+    "품종_영문명": {
+      "selector": "#var_nm_eng",
+      "field": "품종_명칭"
+    },
+    "종자제출_방식": {
+      "selector": "#chk2",
+      "kind": "radio",
+      "note": "확약서 첨부(영양번식)"
+    },
+    "육성자_여부": {
+      "selector": "#apia_val1_2",
+      "kind": "radio",
+      "note": "아니오"
+    },
+    "권리취득_방법": {
+      "selector": "#apia_val2_3",
+      "kind": "radio",
+      "note": "기타"
+    },
+    "권리취득_기타내용": {
+      "selector": "#apia_val2_txt",
+      "value": "권리 소멸 품종, 신규성 없는 유통 품종 등"
+    },
+    "종자업_등록번호": {
+      "selector": "#seed_bsns_no",
+      "field": "종자업_등록번호"
+    },
+    "검역합격증명서_번호": {
+      "selector": "#appQuar1",
+      "field": "검역합격_발급번호"
+    },
+    "개인정보_동의1": {
+      "selector": "#personal_info_agre1_1",
+      "kind": "radio",
+      "note": "동의"
+    },
+    "개인정보_동의2": {
+      "selector": "#personal_info_agre2_1",
+      "kind": "radio",
+      "note": "동의"
+    }
   },
-
-  "attachments": {},
-
+  "attachments": {
+    "품종사진_전체": {
+      "source": "품종사진_전체",
+      "opener": "tr:has(th:has-text('품종사진')) a:has-text('파일첨부')",
+      "note": "품종 전체 모습"
+    },
+    "품종사진_근접": {
+      "source": "품종사진_근접",
+      "opener": "tr:has(th:has-text('품종사진')) a:has-text('파일첨부')",
+      "note": "꽃 근접 모습"
+    },
+    "검역합격증명서": {
+      "source": "검역합격증명서",
+      "opener": "tr:has(th:has-text('검역관련 서류')) a:has-text('파일첨부')",
+      "note": "수입식물 검역합격증명서"
+    },
+    "인보이스": {
+      "source": "인보이스",
+      "opener": "tr:has(th:has-text('기타첨부서류')) a:has-text('파일첨부')",
+      "note": "인보이스"
+    }
+  },
   "manual": [
     "작물 검색 — '작물' 옆 [검색] 팝업에서 골라야 작물분류(crop_gubun)가 채워진다",
     "품종 한글명(var_nm_kor) — 품종명 한글 표기가 ERP에 없다. 입력 후 [중복확인] 필요",
     "품종특성기술서 — [품종특성기술서 입력] / [특성표 입력] 팝업",
-    "파일첨부 — 품종사진·검역서류·육성과정·종자업등록증은 [파일첨부] 팝업에서 올린다",
     "제출 — [종자원 접수요청] 버튼은 확인 후 직접 누른다"
+  ],
+  "manual_attachments": [
+    "품종특성기술서 — [품종특성기술서 입력] 팝업에서 직접 작성",
+    "육성과정의 설명 — 첨부 팝업 구조 미확인",
+    "종자업등록증 — 첨부 팝업 구조 미확인"
   ]
 }
