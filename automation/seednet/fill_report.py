@@ -104,6 +104,51 @@ def fill(page: Page, payload: ReportPayload, field_map: dict) -> tuple[list[str]
     return done, todo
 
 
+_CROP_ROWS = """
+() => [...document.querySelectorAll('a')]
+  .filter(a => a.innerText.trim() === '선택')
+  .map((a, index) => {
+    const row = a.closest('tr');
+    const name = row && row.querySelector('input[name=crop_nm_kor]');
+    const code = row && row.querySelector('input[name=crop_cd]');
+    return { index, name: name ? name.value : '', code: code ? code.value : '' };
+  })
+"""
+
+
+def select_crop(context, page: Page, payload: ReportPayload, entry: dict) -> tuple[str | None, str]:
+    """작물 검색 팝업에서 작물을 고른다.
+
+    검색어와 **정확히 같은** 작물이 하나일 때만 자동으로 선택한다.
+    작물 분류는 신고 내용의 근간이라, 비슷한 이름 중에서 임의로 고르면 안 된다.
+    (예: '유카'로 검색하면 대왕유카·다화유카리·무지개유카리 등이 함께 나온다.)
+    """
+    keyword = str(payload.fields.get(entry.get("field", "작물_일반명"), "")).strip()
+    if not keyword:
+        return None, "작물명이 비어 있음 — 직접 검색해야 함"
+
+    popup = _open_popup(context, page, entry["opener"])
+    popup.fill("#crop_nm_kor", keyword)
+    popup.click("a:has-text('검색')")
+    popup.wait_for_timeout(2500)
+
+    rows = popup.evaluate(_CROP_ROWS)
+    if not rows:
+        return None, f"'{keyword}' 검색 결과가 없음 — 팝업에서 직접 검색·선택하세요"
+
+    exact = [r for r in rows if r["name"].strip() == keyword]
+    if len(exact) != 1:
+        names = ", ".join(r["name"] for r in rows[:8])
+        return None, (
+            f"'{keyword}'와 정확히 일치하는 작물이 {len(exact)}개 (후보: {names}) "
+            "— 팝업에서 직접 [선택]하세요"
+        )
+
+    popup.click(f"a:has-text('선택') >> nth={exact[0]['index']}")
+    popup.wait_for_timeout(1500)
+    return f"{exact[0]['name']} ({exact[0]['code']})", ""
+
+
 def click_actions(page: Page, actions: list[dict]) -> tuple[list[str], list[str]]:
     """입력 후 눌러야 하는 버튼(중복확인 등)을 순서대로 누른다."""
     done, failed = [], []
@@ -216,6 +261,15 @@ def main() -> int:
             for line in todo:
                 print("   !", line)
         print("=" * 66)
+
+        crop = field_map.get("crop_search")
+        if crop:
+            picked, problem = select_crop(context, page, payload, crop)
+            if picked:
+                print(f"   + 작물 선택 = {picked}")
+            else:
+                todo.append(f"작물 검색: {problem}")
+                input("\n  작물을 팝업에서 직접 선택한 뒤 Enter > ")
 
         actions = field_map.get("actions_after_fill", [])
         if actions:
