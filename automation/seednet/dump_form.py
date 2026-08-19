@@ -14,7 +14,7 @@ from pathlib import Path
 from seednet import config
 from seednet.browser import close_session, open_session
 
-OUTPUT = Path("automation/form_dump.json")
+OUTPUT = config.FORM_DUMP
 
 _EXTRACT = """
 () => {

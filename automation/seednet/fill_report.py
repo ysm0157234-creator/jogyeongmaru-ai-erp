@@ -18,7 +18,7 @@ from seednet import config
 from seednet.browser import close_session, open_session
 from seednet.payload import ReportPayload, load_payload
 
-FIELD_MAP = Path("automation/field_map.json")
+FIELD_MAP = config.FIELD_MAP
 
 
 class FieldMapError(RuntimeError):

@@ -17,9 +17,13 @@ ERP가 만든 ZIP을 그대로 써서 [국립종자원 종자민원서비스](ht
 ## 설치
 
 ```bash
-pip install -r automation/requirements.txt
-python -m playwright install chromium
+cd ~/Documents/GitHub/jogyeongmaru-ai-erp/automation
+pip3 install -r requirements.txt
+python3 -m playwright install chromium
 ```
+
+> 아래 명령은 모두 **`automation` 폴더 안에서** 실행한다.
+> (저장소 루트에서 실행하면 `No module named 'seednet'` 오류가 난다.)
 
 ## 1단계 — 신고 화면 구조 뽑기 (최초 1회)
 
@@ -27,7 +31,7 @@ python -m playwright install chromium
 실제 화면 구조부터 뽑는다.
 
 ```bash
-python -m seednet.dump_form
+python3 -m seednet.dump_form
 ```
 
 브라우저가 열리면 → 로그인 → 신고 **작성/신규신청** 화면까지 이동 → 터미널에서 Enter.
@@ -43,7 +47,7 @@ python -m seednet.dump_form
 ## 3단계 — 자동 입력 (매번)
 
 ```bash
-python -m seednet.fill_report "~/Downloads/수국_ENDLESS_SUMMER_complete.zip"
+python3 -m seednet.fill_report "~/Downloads/수국_ENDLESS_SUMMER_complete.zip"
 ```
 
 - ZIP의 `manifest.json > report_fields`에서 신고 값을 읽는다

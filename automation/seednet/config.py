@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+# 이 파일 위치 기준으로 automation 폴더를 잡는다. 어느 디렉터리에서 실행하든 동일하게 동작한다.
+AUTOMATION_DIR = Path(__file__).resolve().parent.parent
+
 BASE_URL = "https://www.seednet.go.kr"
 LOGIN_URL = f"{BASE_URL}/member/login.do"
 
@@ -15,4 +20,8 @@ LOGGED_IN_HINTS = ("로그아웃", "나의 민원")
 LOGIN_WAIT_SECONDS = 600
 
 # 브라우저 세션을 저장해 두면 다음 실행 때 로그인을 건너뛸 수 있다.
-STORAGE_STATE = "automation/.seednet-session.json"
+STORAGE_STATE = AUTOMATION_DIR / ".seednet-session.json"
+
+# 1단계 결과와 입력 매핑 파일
+FORM_DUMP = AUTOMATION_DIR / "form_dump.json"
+FIELD_MAP = AUTOMATION_DIR / "field_map.json"

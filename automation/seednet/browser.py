@@ -27,7 +27,7 @@ def open_session(headless: bool = False):
     playwright = sync_playwright().start()
     browser = playwright.chromium.launch(headless=headless)
 
-    state = Path(config.STORAGE_STATE)
+    state = config.STORAGE_STATE
     context = browser.new_context(
         storage_state=str(state) if state.exists() else None,
         accept_downloads=True,
