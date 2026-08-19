@@ -23,9 +23,14 @@ _LOG: list[str] = []
 
 
 def log(message: str) -> None:
-    """터미널과 파일에 함께 남긴다. 문제가 났을 때 이 파일만 주면 된다."""
+    """터미널과 파일에 함께 남긴다.
+
+    한 줄 쓸 때마다 파일에 반영한다. 중간에 죽어도 어디까지 갔는지 남아야
+    진단이 된다(예전에는 끝까지 가야 저장돼서 정작 실패했을 때 파일이 없었다).
+    """
     print(message, flush=True)
     _LOG.append(message)
+    _write_log()
 
 
 def _write_log() -> None:
@@ -183,9 +188,27 @@ def select_crop(context, page: Page, payload: ReportPayload, entry: dict) -> tup
         except Exception as exc2:
             log(f"      본문 일반명 칸 입력 실패: {type(exc2).__name__} {exc2}")
 
-    log(f"      작물검색 팝업 열기: {entry['opener']}")
+    openers = entry.get("openers") or [entry["opener"]]
+    popup = None
+    last_error = None
+    for candidate in openers:
+        try:
+            count = page.locator(candidate).count()
+        except Exception:
+            count = -1
+        log(f"      작물 [검색] 후보 '{candidate}' → {count}개")
+        if count <= 0:
+            continue
+        try:
+            popup = _open_popup(context, page, candidate)
+            break
+        except Exception as exc:
+            last_error = exc
+            log(f"        열기 실패: {type(exc).__name__}")
+
     try:
-        popup = _open_popup(context, page, entry["opener"])
+        if popup is None:
+            raise last_error or RuntimeError("작물 [검색] 버튼을 찾지 못했습니다")
     except Exception as exc:
         _shot(page, "crop_opener")
         return None, f"작물 [검색] 버튼을 누르지 못했습니다: {type(exc).__name__} {str(exc)[:90]}"

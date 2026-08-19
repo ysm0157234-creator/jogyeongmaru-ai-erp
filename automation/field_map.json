@@ -113,8 +113,13 @@
     "wait": 4000
   },
   "crop_search": {
-    "opener": "tr:has(th:has-text('작물')) a:has-text('검색')",
-    "field": "작물_일반명"
+    "openers": [
+      "tr:has(#crop_nm_kor) a:has-text('검색')",
+      "#crop_nm_kor >> xpath=ancestor::tr[1] >> a:has-text('검색')",
+      "tr:has(th:has-text('작물')) a:has-text('검색')"
+    ],
+    "field": "작물_일반명",
+    "keyword_selector": "#crop_nm_kor"
   },
   "char_sheet": {
     "opener": "a:has-text('품종특성기술서 입력')",

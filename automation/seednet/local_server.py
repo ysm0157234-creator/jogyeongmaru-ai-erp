@@ -103,7 +103,14 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 result = run(temp, interactive=False)
             except Exception as exc:
-                traceback.print_exc()
+                detail = traceback.format_exc()
+                print(detail, flush=True)
+                try:
+                    (config.AUTOMATION_DIR / "last_run.log").open("a", encoding="utf-8").write(
+                        "\n\n=== 실행 중 오류 ===\n" + detail
+                    )
+                except Exception:
+                    pass
                 self._send(500, {"error": f"{type(exc).__name__}: {exc}"})
                 return
 
