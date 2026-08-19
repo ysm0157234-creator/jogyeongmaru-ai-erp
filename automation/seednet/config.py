@@ -22,6 +22,10 @@ LOGIN_WAIT_SECONDS = 600
 # 브라우저 세션을 저장해 두면 다음 실행 때 로그인을 건너뛸 수 있다.
 STORAGE_STATE = AUTOMATION_DIR / ".seednet-session.json"
 
+# 웹앱 버튼으로 받은 신고 자료를 남겨두는 곳.
+# 임시 폴더에만 두면 나중에 찾을 수 없어서, 품종별로 보관한다.
+ARCHIVE_DIR = AUTOMATION_DIR / "신고자료"
+
 # 1단계 결과와 입력 매핑 파일
 FORM_DUMP = AUTOMATION_DIR / "form_dump.json"
 FIELD_MAP = AUTOMATION_DIR / "field_map.json"

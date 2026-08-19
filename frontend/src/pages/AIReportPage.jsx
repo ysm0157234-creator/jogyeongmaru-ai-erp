@@ -153,6 +153,7 @@ export default function AIReportPage() {
         <button className="primary-button icon-button" onClick={fileToSeednet} disabled={seednetLoading || !driveStatus?.configured}>{seednetLoading?<LoaderCircle className="spin" size={18}/>:<FileSearch size={18}/>} 신고 자동입력</button>
         {seednetStatus && <div className={`file-status-message ${seednetStatus.startsWith("실패")?"failed":seednetStatus.startsWith("완료")?"success":"working"}`} style={{whiteSpace:"pre-line"}}>{seednetStatus}</div>}
         {seednetResult && <div className="seednet-result">
+          {seednetResult.saved_to && <p className="muted">신고 자료 보관: {seednetResult.saved_to}</p>}
           <p><strong>자동 처리 {seednetResult.done.length}건</strong></p>
           <ul>{seednetResult.done.map((line,i)=><li key={i}>{line}</li>)}</ul>
           <p><strong>직접 처리할 항목 {seednetResult.todo.length}건</strong></p>

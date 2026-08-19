@@ -13,12 +13,14 @@ ERP 웹앱(Render)에서 신고 자동입력 버튼을 누르면 여기로 ZIP�
 from __future__ import annotations
 
 import json
-import tempfile
+import re
+import time
 import threading
 import traceback
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
+from seednet import config
 from seednet.runner import run
 
 HOST = "127.0.0.1"
@@ -90,9 +92,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send(400, {"error": "ZIP 파일을 받지 못했습니다."})
             return
 
-        temp = Path(tempfile.mkdtemp(prefix="seednet-")) / "package.zip"
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        folder = config.ARCHIVE_DIR / stamp
+        folder.mkdir(parents=True, exist_ok=True)
+        temp = folder / "package.zip"
         temp.write_bytes(data)
-        print(f"\n[요청] {temp.name} {len(data):,} bytes — 자동 입력을 시작합니다.")
+        print(f"\n[요청] {len(data):,} bytes 받음 — 보관: {folder}")
 
         with _lock:
             try:
@@ -102,7 +107,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(500, {"error": f"{type(exc).__name__}: {exc}"})
                 return
 
+        # 품종명을 알게 됐으니 폴더 이름에 붙여 나중에 찾기 쉽게 한다.
+        variety = re.sub(r'[\\/:*?"<>|]+', "_", str(result.get("variety") or "")).strip()
+        if variety:
+            renamed = config.ARCHIVE_DIR / f"{stamp}_{variety}"
+            try:
+                folder.rename(renamed)
+                result["saved_to"] = str(renamed)
+            except Exception:
+                result["saved_to"] = str(folder)
+        else:
+            result["saved_to"] = str(folder)
+
         print(f"[완료] 자동 {len(result['done'])}건 / 직접 {len(result['todo'])}건")
+        print(f"       자료 보관: {result['saved_to']}")
         self._send(200, result)
 
     def log_message(self, *args) -> None:

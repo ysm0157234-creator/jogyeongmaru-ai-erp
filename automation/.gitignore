@@ -5,3 +5,5 @@ form_dump.json
 # 실행 로그와 실패 화면 (개인정보가 담길 수 있다)
 last_run.log
 last_run_*.png
+# 웹앱 버튼으로 받은 신고 자료 (개인정보 포함)
+신고자료/
