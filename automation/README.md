@@ -34,8 +34,11 @@ python3 -m playwright install chromium
 python3 -m seednet.dump_form
 ```
 
-브라우저가 열리면 → 로그인 → 신고 **작성/신규신청** 화면까지 이동 → 터미널에서 Enter.
-`automation/form_dump.json`에 입력 항목 목록이 저장된다.
+브라우저가 열리면 → 로그인 → 신청서 목록에서 **`신고서작성하기`** 클릭.
+
+신고 화면은 여러 단계로 나뉘어 있을 수 있으므로, **화면이 바뀔 때마다** 터미널에서
+Enter를 눌러 캡처한다. 다 끝나면 `q`를 입력한다.
+`automation/form_dump.json`에 화면별 입력 항목이 저장된다.
 
 ## 2단계 — 입력 매핑 작성 (최초 1회)
 

@@ -9,12 +9,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from seednet import config
 from seednet.browser import close_session, open_session
 
-OUTPUT = config.FORM_DUMP
 
 _EXTRACT = """
 () => {
@@ -57,38 +55,63 @@ _EXTRACT = """
 """
 
 
+def _snapshot(page) -> dict:
+    dump = page.evaluate(_EXTRACT)
+    dump["frames"] = []
+    for frame in page.frames[1:]:
+        try:
+            dump["frames"].append(frame.evaluate(_EXTRACT))
+        except Exception as exc:
+            dump["frames"].append({"error": str(exc), "url": frame.url})
+    return dump
+
+
+def _summarize(dump: dict) -> None:
+    visible = [c for c in dump["controls"] if not c["hidden"]]
+    print(f"  URL      {dump['url']}")
+    print(f"  제목     {dump['headings'][:6]}")
+    print(f"  입력항목 {len(dump['controls'])}개 (보이는 것 {len(visible)}개), 프레임 {len(dump['frames'])}개")
+    for control in visible[:25]:
+        mark = control["label"] or control["text"]
+        print(f"    {control['tag']:<7} {control['type']:<9} name={control['name']:<18} {mark[:26]}")
+
+
 def main() -> None:
     playwright, browser, context, page = open_session()
+    snapshots: list[dict] = []
     try:
         page.goto(config.REPORT_LIST_URL, wait_until="domcontentloaded")
         page.wait_for_timeout(1500)
 
-        print("=" * 62)
-        print("  신고 '작성/신규신청' 화면까지 직접 이동해 주세요.")
-        print("  작성 폼이 화면에 보이면 이 터미널에서 Enter를 누르세요.")
-        print("=" * 62)
-        input("\n준비되면 Enter > ")
+        print("=" * 66)
+        print("  신고 화면은 여러 단계로 나뉘어 있을 수 있습니다.")
+        print("  목록에서 '신고서작성하기'를 누르고, 화면이 바뀔 때마다 캡처하세요.")
+        print()
+        print("    Enter  현재 화면을 캡처")
+        print("    q      캡처를 마치고 저장")
+        print("=" * 66)
 
-        dump = page.evaluate(_EXTRACT)
-        # 프레임을 쓰는 화면이면 프레임 안쪽도 같이 담는다.
-        dump["frames"] = []
-        for frame in page.frames[1:]:
-            try:
-                dump["frames"].append(frame.evaluate(_EXTRACT))
-            except Exception as exc:
-                dump["frames"].append({"error": str(exc), "url": frame.url})
+        while True:
+            answer = input(f"\n[{len(snapshots)}개 캡처됨] Enter=캡처 / q=종료 > ").strip().lower()
+            if answer == "q":
+                break
+            dump = _snapshot(page)
+            snapshots.append(dump)
+            print(f"\n--- {len(snapshots)}번째 캡처 ---")
+            _summarize(dump)
 
-        OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-        OUTPUT.write_text(json.dumps(dump, ensure_ascii=False, indent=2), encoding="utf-8")
+        if not snapshots:
+            print("캡처한 화면이 없습니다.")
+            return
 
-        visible = [c for c in dump["controls"] if not c["hidden"]]
-        print(f"\n저장: {OUTPUT}")
-        print(f"입력 항목 {len(dump['controls'])}개 (보이는 것 {len(visible)}개), 프레임 {len(dump['frames'])}개")
-        for control in visible[:30]:
-            print(f"  {control['tag']:<8} {control['type']:<10} name={control['name']:<24} {control['label'][:26]}")
+        config.FORM_DUMP.parent.mkdir(parents=True, exist_ok=True)
+        config.FORM_DUMP.write_text(
+            json.dumps({"snapshots": snapshots}, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        print(f"\n저장: {config.FORM_DUMP}  (화면 {len(snapshots)}개)")
     finally:
         close_session(playwright, browser, context, keep_open=True)
-        print("\n브라우저는 열어둡니다. 확인 후 직접 닫으세요.")
+        print("브라우저는 열어둡니다. 확인 후 직접 닫으세요.")
 
 
 if __name__ == "__main__":
