@@ -104,6 +104,19 @@ def fill(page: Page, payload: ReportPayload, field_map: dict) -> tuple[list[str]
     return done, todo
 
 
+def click_actions(page: Page, actions: list[dict]) -> tuple[list[str], list[str]]:
+    """입력 후 눌러야 하는 버튼(중복확인 등)을 순서대로 누른다."""
+    done, failed = [], []
+    for action in actions:
+        try:
+            page.click(action["selector"], timeout=action.get("timeout", 8000))
+            page.wait_for_timeout(action.get("wait", 1500))
+            done.append(action["name"])
+        except Exception as exc:
+            failed.append(f"{action['name']}: {type(exc).__name__} — 직접 눌러야 함")
+    return done, failed
+
+
 def _open_popup(context, page: Page, opener: str, timeout: int = 15000):
     """본문의 [파일첨부] 링크를 눌러 팝업 창을 연다."""
     before = set(context.pages)
@@ -204,24 +217,48 @@ def main() -> int:
                 print("   !", line)
         print("=" * 66)
 
-        # 이 사이트는 임시저장을 해야 첨부 기능이 열린다.
-        # 저장 버튼은 사람이 누른다. 자동화는 저장 이후 첨부만 돕는다.
-        print("\n  첨부는 [임시저장] 이후에만 가능합니다.")
-        print("  화면에서 직접 [임시저장]을 누르고, 첨부 화면이 열리면 Enter를 누르세요.")
-        print("  (첨부를 건너뛰려면 s 를 입력하세요)")
-        answer = input("\n  임시저장 완료 후 Enter / s=건너뛰기 > ").strip().lower()
+        actions = field_map.get("actions_after_fill", [])
+        if actions:
+            pressed, unpressed = click_actions(page, actions)
+            for name in pressed:
+                print("   +", name, "눌렀음")
+            for line in unpressed:
+                todo.append(line)
 
-        if answer != "s":
-            attached, remaining = attach(context, payload, field_map)
-            print("\n" + "=" * 66)
-            print(f"  2단계 첨부 완료: {len(attached)}개")
-            for line in attached:
-                print("   +", line)
-            if remaining:
-                print(f"\n  직접 첨부할 항목: {len(remaining)}개")
-                for line in remaining:
-                    print("   !", line)
-            print("=" * 66)
+        # 이 사이트는 임시저장을 해야 첨부 기능이 열린다.
+        saved = False
+        save = field_map.get("save_draft")
+        if save:
+            print(f"\n  [{save['name']}] 을 누릅니다. (첨부는 저장 후에만 가능)")
+            try:
+                page.click(save["selector"], timeout=10000)
+                page.wait_for_timeout(save.get("wait", 4000))
+                # 확인 대화상자가 뜨는 화면이 있어 한 번 더 확인한다.
+                for label in ("확인", "예"):
+                    try:
+                        page.click(f"a:has-text('{label}'), button:has-text('{label}')", timeout=1500)
+                        page.wait_for_timeout(1500)
+                        break
+                    except Exception:
+                        continue
+                saved = True
+                print("   + 임시저장 완료")
+            except Exception as exc:
+                print(f"   ! 임시저장 실패: {type(exc).__name__} — 직접 눌러 주세요")
+
+        if not saved:
+            input("\n  임시저장을 직접 누른 뒤 Enter > ")
+
+        attached, remaining = attach(context, payload, field_map)
+        print("\n" + "=" * 66)
+        print(f"  첨부 완료: {len(attached)}개")
+        for line in attached:
+            print("   +", line)
+        if remaining:
+            print(f"\n  직접 첨부할 항목: {len(remaining)}개")
+            for line in remaining:
+                print("   !", line)
+        print("=" * 66)
 
         print("\n  [종자원 접수요청] 버튼은 누르지 않았습니다.")
         print("  화면 내용을 확인한 뒤 직접 눌러 신고를 마치세요.")

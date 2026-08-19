@@ -60,6 +60,10 @@
       "selector": "#personal_info_agre2_1",
       "kind": "radio",
       "note": "동의"
+    },
+    "품종_한글명": {
+      "selector": "#var_nm_kor",
+      "field": "품종_한글명"
     }
   },
   "attachments": {
@@ -82,17 +86,31 @@
       "source": "인보이스",
       "opener": "tr:has(th:has-text('기타첨부서류')) a:has-text('파일첨부')",
       "note": "인보이스"
+    },
+    "육성과정_설명": {
+      "source": "신고서",
+      "opener": "tr:has(th:has-text('육성과정의 설명')) a:has-text('파일첨부')",
+      "note": "육성과정의 설명"
     }
   },
   "manual": [
-    "작물 검색 — '작물' 옆 [검색] 팝업에서 골라야 작물분류(crop_gubun)가 채워진다",
-    "품종 한글명(var_nm_kor) — 품종명 한글 표기가 ERP에 없다. 입력 후 [중복확인] 필요",
-    "품종특성기술서 — [품종특성기술서 입력] / [특성표 입력] 팝업",
+    "작물 검색 — [검색] 팝업 (구조 확인 후 자동화 예정)",
+    "품종특성기술서 — [품종특성기술서 입력] 팝업 (구조 확인 후 자동화 예정)",
     "제출 — [종자원 접수요청] 버튼은 확인 후 직접 누른다"
   ],
   "manual_attachments": [
-    "품종특성기술서 — [품종특성기술서 입력] 팝업에서 직접 작성",
-    "육성과정의 설명 — 첨부 팝업 구조 미확인",
-    "종자업등록증 — 첨부 팝업 구조 미확인"
-  ]
+    "종자업등록증 — 등록증 원본 파일이 ERP ZIP에 없음"
+  ],
+  "actions_after_fill": [
+    {
+      "name": "품종명 중복확인",
+      "selector": "tr:has(th:has-text('품종')) a:has-text('중복확인')",
+      "wait": 2000
+    }
+  ],
+  "save_draft": {
+    "name": "임시저장",
+    "selector": "a:has-text('임시저장')",
+    "wait": 4000
+  }
 }

@@ -44,6 +44,9 @@ def build_manifest(variety_name: str, draft_data: dict, assets: DriveAssets, doc
             "작물_일반명": str(draft_data.get("korean_name") or final_name),
             "작물_학명": str(draft_data.get("scientific_name") or ""),
             "품종_명칭": str(draft_data.get("cultivar") or final_name),
+            # 국립종자원은 품종명 한글 표기를 따로 받는다(예: PIIHQ-I → 피엘엘에이치큐-엘).
+            # 규정상 사람이 정하는 이름이라 AI가 만들지 않고, 신고 화면에서 비면 직접 입력한다.
+            "품종_한글명": str(draft_data.get("cultivar_ko") or ""),
             "원산지": str(draft_data.get("origin") or ""),
             "종자업_등록번호": COMPANY["seed_business_number"],
             "검역합격_발급번호": assets.quarantine_number or "",

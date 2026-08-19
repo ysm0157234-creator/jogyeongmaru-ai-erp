@@ -148,6 +148,8 @@ function AIResult({ draft, setDraft, setError, onFormChange }) {
     <section className="panel ai-result-header"><div><p className="eyebrow">AI DRAFT #{draft.id} · {form.build_version || "버전 확인 불가"}</p>{editing?<div className="edit-title-grid"><input value={form.matched_name} onChange={e=>change(["matched_name"],e.target.value)}/><input value={form.korean_name} onChange={e=>change(["korean_name"],e.target.value)}/></div>:<><h2>{form.matched_name}</h2><p className="muted">{form.korean_name}</p></>}</div><span className="status pending">{draft.status}</span></section>
     <section className="ai-summary-grid">
       <Card editing={editing} label="학명" value={form.scientific_name} onChange={v=>change(["scientific_name"],v)}/>
+      <Card editing={editing} label="품종명(영문)" value={form.cultivar || ""} onChange={v=>change(["cultivar"],v)}/>
+      <Card editing={editing} label="품종명(한글)" value={form.cultivar_ko || ""} onChange={v=>change(["cultivar_ko"],v)}/>
       <Card editing={editing} label="꽃 색상" value={form.classification?.flower_color || ""} onChange={v=>change(["classification","flower_color"],v)}/>
       <Card editing={editing} label="개화기" value={form.classification?.flowering_period || ""} onChange={v=>change(["classification","flowering_period"],v)}/>
       <Card editing={editing} label="초장" value={form.classification?.height || ""} onChange={v=>change(["classification","height"],v)}/>
