@@ -95,7 +95,6 @@
     }
   },
   "manual": [
-    "품종특성기술서 — [품종특성기술서 입력] 팝업 (구조 확인 후 자동화 예정)",
     "제출 — [종자원 접수요청] 버튼은 확인 후 직접 누른다"
   ],
   "manual_attachments": [
@@ -116,5 +115,24 @@
   "crop_search": {
     "opener": "tr:has(th:has-text('작물')) a:has-text('검색')",
     "field": "작물_일반명"
+  },
+  "char_sheet": {
+    "opener": "a:has-text('품종특성기술서 입력')",
+    "fields": {
+      "주요 형태적 특성": {
+        "selector": "#fndg_char",
+        "field": "품종_특성설명"
+      },
+      "품종육성경과 요약": {
+        "selector": "#fndg_grth",
+        "field": "육성과정_설명"
+      }
+    },
+    "submit": "a:has-text('입력완료')",
+    "manual": [
+      "GMO 여부 / GMO 검정 여부 — 신고인이 사실로 선언하는 항목",
+      "균일성·안정성 여부, 작기(춘작/하작/추작/동작)",
+      "대조품종, 대조품종과 구별되는 특성, 균일성·안정성 기술"
+    ]
   }
 }

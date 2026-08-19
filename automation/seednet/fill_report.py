@@ -149,6 +149,59 @@ def select_crop(context, page: Page, payload: ReportPayload, entry: dict) -> tup
     return f"{exact[0]['name']} ({exact[0]['code']})", ""
 
 
+def fill_char_sheet(context, page: Page, payload: ReportPayload, entry: dict) -> tuple[list[str], list[str]]:
+    """품종특성기술서 팝업을 채운다.
+
+    작물별 특성표가 아니라 자유 서술 칸이라 ERP 조사 결과를 그대로 넣을 수 있다.
+    다만 GMO 여부·작기·대조품종처럼 **신고인이 사실로 선언하는 항목**은 채우지 않는다.
+    ERP에 근거 자료가 없고, 틀린 값이 신고서에 들어가면 안 되는 자리다.
+    """
+    done: list[str] = []
+    todo: list[str] = []
+
+    popup = _open_popup(context, page, entry["opener"])
+    try:
+        for name, item in entry.get("fields", {}).items():
+            value = str(payload.fields.get(item["field"], "")).strip()
+            if not value:
+                todo.append(f"특성기술서 {name}: 값이 비어 있음")
+                continue
+            try:
+                popup.fill(item["selector"], value)
+                done.append(f"특성기술서 {name}")
+            except Exception:
+                # 화면에 숨겨진 칸은 직접 값을 넣는다.
+                try:
+                    popup.evaluate(
+                        "([sel, val]) => { const el = document.querySelector(sel); el.value = val; }",
+                        [item["selector"], value],
+                    )
+                    done.append(f"특성기술서 {name} (숨김칸)")
+                except Exception as exc:
+                    todo.append(f"특성기술서 {name}: {type(exc).__name__}")
+
+        for name in entry.get("manual", []):
+            todo.append(f"특성기술서 {name}: 신고인이 판단할 항목 — 직접 선택")
+
+        if entry.get("submit"):
+            print("\n  품종특성기술서 내용을 확인하고 [입력완료]를 누르세요.")
+            print("  (자동으로 누르려면 a, 건너뛰려면 Enter)")
+            if input("  > ").strip().lower() == "a":
+                popup.click(entry["submit"])
+                popup.wait_for_timeout(1500)
+                done.append("특성기술서 입력완료")
+            else:
+                input("  팝업 처리를 마친 뒤 Enter > ")
+    finally:
+        if not popup.is_closed():
+            try:
+                popup.close()
+            except Exception:
+                pass
+
+    return done, todo
+
+
 def click_actions(page: Page, actions: list[dict]) -> tuple[list[str], list[str]]:
     """입력 후 눌러야 하는 버튼(중복확인 등)을 순서대로 누른다."""
     done, failed = [], []
@@ -273,6 +326,13 @@ def main() -> int:
             for line in todo:
                 print("   !", line)
         print("=" * 66)
+
+        sheet = field_map.get("char_sheet")
+        if sheet:
+            sheet_done, sheet_todo = fill_char_sheet(context, page, payload, sheet)
+            for line in sheet_done:
+                print("   +", line)
+            todo.extend(sheet_todo)
 
         actions = field_map.get("actions_after_fill", [])
         if actions:
