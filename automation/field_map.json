@@ -104,6 +104,7 @@
     {
       "name": "품종명 중복확인",
       "selector": "tr:has(#var_nm_kor) a:has-text('중복확인')",
+      "requires_field": "품종_한글명",
       "wait": 2500
     }
   ],

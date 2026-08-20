@@ -315,16 +315,28 @@ def fill_char_sheet(context, page: Page, payload: ReportPayload, entry: dict, *,
     return done, todo
 
 
-def click_actions(page: Page, actions: list[dict]) -> tuple[list[str], list[str]]:
+def click_actions(page: Page, actions: list[dict], payload: ReportPayload) -> tuple[list[str], list[str]]:
     """입력 후 눌러야 하는 버튼(중복확인 등)을 순서대로 누른다."""
     done, failed = [], []
     for action in actions:
+        name = action["name"]
+
+        # 값이 있어야 의미가 있는 버튼은 값이 비면 누르지 않는다.
+        # (중복확인은 품종명이 비어 있으면 확인할 대상 자체가 없다.)
+        guard = action.get("requires_field")
+        if guard and not str(payload.fields.get(guard, "")).strip():
+            log(f"      {name} 건너뜀 — {guard}이(가) 비어 있음")
+            failed.append(f"{name}: {guard}이(가) 비어 있어 누르지 않았습니다")
+            continue
+
         try:
             page.click(action["selector"], timeout=action.get("timeout", 8000))
             page.wait_for_timeout(action.get("wait", 1500))
-            done.append(action["name"])
+            log(f"      {name} 눌렀음")
+            done.append(name)
         except Exception as exc:
-            failed.append(f"{action['name']}: {type(exc).__name__} — 직접 눌러야 함")
+            log(f"      {name} 실패: {type(exc).__name__}")
+            failed.append(f"{name}: {type(exc).__name__} — 직접 눌러야 함")
     return done, failed
 
 
@@ -459,11 +471,13 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
     log("   - 입력값 채우는 중")
     filled, filled_todo = fill(page, payload, field_map)
     log(f"     입력 {len(filled)}건 / 직접처리 {len(filled_todo)}건")
+    for line in filled_todo:
+        log(f"       · {line}")
     done.extend(filled)
     todo.extend(filled_todo)
 
     # 사이트가 품종명 확정(중복확인)을 먼저 요구하므로 특성기술서보다 앞에 둔다.
-    pressed, unpressed = click_actions(page, field_map.get("actions_after_fill", []))
+    pressed, unpressed = click_actions(page, field_map.get("actions_after_fill", []), payload)
     done.extend(pressed)
     todo.extend(unpressed)
 

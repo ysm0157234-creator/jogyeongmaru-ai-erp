@@ -10,6 +10,39 @@ from app.services.document_manager import COMPANY, DocumentBundle
 from app.services.drive_manager import DriveAssets
 
 
+_HANGUL = re.compile(r"[가-힣]")
+
+
+def korean_only(value: str) -> str:
+    """한글이 없으면 빈 값으로 돌려준다.
+
+    국립종자원 작물 등록부는 한글 일반명으로 찾는다. AI가 'Hydrangea' 같은 영문을
+    돌려주면 검색이 어긋나므로, 차라리 비워서 사람이 고르게 한다.
+    """
+    text = str(value or "").strip()
+    return text if _HANGUL.search(text) else ""
+
+
+def derive_cultivar(draft_data: dict, scientific_name: str, fallback: str) -> str:
+    """품종명만 뽑는다.
+
+    조사 결과에 품종명이 따로 없으면 신고명에서 학명 부분을 걷어낸 나머지를 쓴다.
+    (예: 'Hydrangea macrophylla Endless Summer' - 'Hydrangea macrophylla'
+      -> 'Endless Summer')
+    """
+    cultivar = str(draft_data.get("cultivar") or "").strip()
+    if cultivar:
+        return cultivar
+
+    name = str(fallback or "").strip()
+    words = str(scientific_name or "").split()[:2]
+    rest = name
+    for word in words:
+        rest = re.sub(rf"\b{re.escape(word)}\b", " ", rest, flags=re.I)
+    rest = re.sub(r"\s+", " ", rest).strip(" '\"")
+    return rest or name
+
+
 def safe(value: str) -> str:
     return re.sub(r'[\\/:*?"<>|]+', "_", str(value or "")).strip() or "report"
 
@@ -41,9 +74,11 @@ def build_manifest(variety_name: str, draft_data: dict, assets: DriveAssets, doc
             "신고인_주소": COMPANY["address"],
             "신고인_법인명칭": COMPANY["company_name"],
             "신고인_전화번호": COMPANY["phone"],
-            "작물_일반명": str(draft_data.get("korean_name") or final_name),
+            "작물_일반명": korean_only(draft_data.get("korean_name")),
             "작물_학명": str(draft_data.get("scientific_name") or ""),
-            "품종_명칭": str(draft_data.get("cultivar") or final_name),
+            "품종_명칭": derive_cultivar(
+                draft_data, draft_data.get("scientific_name", ""), final_name
+            ),
             # 국립종자원은 품종명 한글 표기를 따로 받는다(예: PIIHQ-I → 피엘엘에이치큐-엘).
             # 규정상 사람이 정하는 이름이라 AI가 만들지 않고, 신고 화면에서 비면 직접 입력한다.
             "품종_한글명": str(draft_data.get("cultivar_ko") or ""),
