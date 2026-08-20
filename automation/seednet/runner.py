@@ -258,7 +258,16 @@ def fill_char_sheet(context, page: Page, payload: ReportPayload, entry: dict, *,
     done: list[str] = []
     todo: list[str] = []
 
-    popup = _open_popup(context, page, entry["opener"])
+    # 이 화면은 품종명이 정해져야 열린다. 비어 있으면 사이트가 안내창만 띄우고 끝난다.
+    guard = entry.get("requires_field")
+    if guard and not str(payload.fields.get(guard, "")).strip():
+        return done, [f"특성기술서: {guard}이(가) 비어 있어 열지 못했습니다 — 품종명을 먼저 입력하세요"]
+
+    try:
+        popup = _open_popup(context, page, entry["opener"])
+    except Exception as exc:
+        _shot(page, "char_sheet")
+        return done, [f"특성기술서 팝업이 열리지 않았습니다: {type(exc).__name__} — 직접 작성하세요"]
     try:
         for name, item in entry.get("fields", {}).items():
             value = str(payload.fields.get(item["field"], "")).strip()
@@ -319,8 +328,28 @@ def click_actions(page: Page, actions: list[dict]) -> tuple[list[str], list[str]
     return done, failed
 
 
+def watch_dialogs(page: Page) -> list[str]:
+    """사이트가 띄우는 경고창 문구를 모아둔다.
+
+    Playwright는 대화상자를 자동으로 닫아버린다. 그래서 '품종명을 입력하세요' 같은
+    안내가 떠서 팝업이 안 열려도 겉으로는 그냥 시간만 지나간 것처럼 보였다.
+    """
+    messages: list[str] = []
+
+    def on_dialog(dialog):
+        messages.append(dialog.message.strip())
+        log(f"      [사이트 안내] {dialog.message.strip()}")
+        try:
+            dialog.accept()
+        except Exception:
+            pass
+
+    page.on("dialog", on_dialog)
+    return messages
+
+
 def _open_popup(context, page: Page, opener: str, timeout: int = 15000):
-    """본문의 [파일첨부] 링크를 눌러 팝업 창을 연다."""
+    """본문의 버튼을 눌러 팝업 창을 연다."""
     before = set(context.pages)
     with context.expect_page(timeout=timeout) as info:
         page.click(opener)
@@ -398,6 +427,7 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
 
     log(f"=== 신고 자동입력 시작: {payload.variety} ===")
     playwright, browser, context, page = open_session()
+    watch_dialogs(page)
     page.goto(config.REPORT_LIST_URL, wait_until="domcontentloaded")
     page.wait_for_timeout(1000)
 
@@ -432,6 +462,11 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
     done.extend(filled)
     todo.extend(filled_todo)
 
+    # 사이트가 품종명 확정(중복확인)을 먼저 요구하므로 특성기술서보다 앞에 둔다.
+    pressed, unpressed = click_actions(page, field_map.get("actions_after_fill", []))
+    done.extend(pressed)
+    todo.extend(unpressed)
+
     sheet = field_map.get("char_sheet")
     if sheet:
         sheet_done, sheet_todo = fill_char_sheet(
@@ -439,10 +474,6 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
         )
         done.extend(sheet_done)
         todo.extend(sheet_todo)
-
-    pressed, unpressed = click_actions(page, field_map.get("actions_after_fill", []))
-    done.extend(pressed)
-    todo.extend(unpressed)
 
     # 작물이 정해지지 않으면 임시저장이 통과하지 못하고 첨부도 열리지 않는다.
     # 반쯤 실패한 상태로 밀어붙이지 말고 여기서 멈춘다.
