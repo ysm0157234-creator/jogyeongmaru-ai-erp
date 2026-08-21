@@ -218,6 +218,7 @@ function AIResult({ draft, setDraft, setError, onFormChange }) {
       <Card editing={editing} label="학명" value={form.scientific_name} onChange={v=>change(["scientific_name"],v)}/>
       <Card editing={editing} label="품종명(영문)" value={form.cultivar || ""} onChange={v=>change(["cultivar"],v)}/>
       <Card editing={editing} label="품종명(한글)" value={form.cultivar_ko || ""} onChange={v=>change(["cultivar_ko"],v)}/>
+      <Card editing={editing} label="검역합격 발급번호" value={form.quarantine_number || ""} onChange={v=>change(["quarantine_number"],v)}/>
       <Card editing={editing} label="꽃 색상" value={form.classification?.flower_color || ""} onChange={v=>change(["classification","flower_color"],v)}/>
       <Card editing={editing} label="개화기" value={form.classification?.flowering_period || ""} onChange={v=>change(["classification","flowering_period"],v)}/>
       <Card editing={editing} label="초장" value={form.classification?.height || ""} onChange={v=>change(["classification","height"],v)}/>

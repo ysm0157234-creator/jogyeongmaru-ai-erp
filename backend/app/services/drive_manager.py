@@ -58,9 +58,20 @@ def is_invoice(item: DriveFile) -> bool:
     return not is_folder(item) and name.endswith((".xlsx", ".xlsm", ".pdf")) and ("invoice" in name or "인보이스" in name) and "freight invoice" not in name and "freight_invoice" not in name
 
 
+# 실제 파일 이름은 '검역'보다 '식검확인증'인 경우가 많다(예: 조경마루MAEU249118413 식검확인증.pdf).
+_QUARANTINE_WORDS = (
+    "검역", "식검", "식물검역", "합격증", "확인증",
+    "quarantine", "phytosanitary", "phyto",
+)
+
+
 def is_quarantine(item: DriveFile) -> bool:
     name = item.name.lower()
-    return not is_folder(item) and name.endswith((".pdf", ".jpg", ".jpeg", ".png")) and any(word in name for word in ("검역", "quarantine", "phytosanitary", "phyto"))
+    return (
+        not is_folder(item)
+        and name.endswith((".pdf", ".jpg", ".jpeg", ".png"))
+        and any(word in name for word in _QUARANTINE_WORDS)
+    )
 
 
 def split_shipment(shipment: str) -> tuple[str, int]:

@@ -21,7 +21,8 @@ def run_workflow(variety_name: str, draft_data: dict) -> tuple[bytes, dict]:
     documents = build_documents(
         draft_data=draft_data,
         shipment=assets.shipment,
-        quarantine_number=assets.quarantine_number,
+        quarantine_number=str(draft_data.get("quarantine_number") or "").strip()
+        or assets.quarantine_number,
         overall_image=overall_image,
         closeup_image=closeup_image,
         warnings=warnings,

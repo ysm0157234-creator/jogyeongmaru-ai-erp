@@ -84,7 +84,10 @@ def build_manifest(variety_name: str, draft_data: dict, assets: DriveAssets, doc
             "품종_한글명": str(draft_data.get("cultivar_ko") or ""),
             "원산지": str(draft_data.get("origin") or ""),
             "종자업_등록번호": COMPANY["seed_business_number"],
-            "검역합격_발급번호": assets.quarantine_number or "",
+            # 검역합격증이 스캔 이미지라 번호를 읽어낼 수 없다. 사람이 넣은 값을 우선한다.
+            "검역합격_발급번호": str(draft_data.get("quarantine_number") or "").strip()
+            or assets.quarantine_number
+            or "",
             "품종_특성설명": str(draft_data.get("characteristics_draft") or ""),
             "육성과정_설명": str(draft_data.get("breeding_process_draft") or ""),
         },
