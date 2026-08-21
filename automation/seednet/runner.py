@@ -166,9 +166,11 @@ def select_crop(context, page: Page, payload: ReportPayload, entry: dict) -> tup
     작물 분류는 신고 내용의 근간이라, 비슷한 이름 중에서 임의로 고르면 안 된다.
     (예: '유카'로 검색하면 대왕유카·다화유카리·무지개유카리 등이 함께 나온다.)
     """
-    keyword = str(payload.fields.get(entry.get("field", "작물_일반명"), "")).strip()
+    # 검색은 한글 일반명이 없으면 속명으로 한다. 자동 선택 판정은 한글 일반명으로만 한다.
+    keyword = str(payload.fields.get(entry.get("field", "작물_검색어"), "")).strip()
+    target = str(payload.fields.get(entry.get("match_field", "작물_일반명"), "")).strip()
     if not keyword:
-        return None, "작물명이 비어 있음 — 직접 검색해야 함"
+        return None, "작물명·학명이 모두 비어 있음 — 팝업에서 직접 검색·선택하세요"
 
     # 팝업은 본문 '일반명' 칸의 값을 물고 열린다(팝업 URL에 crop_nm_kor로 실려 간다).
     # 그래서 팝업을 열기 전에 본문 칸부터 채운다.
@@ -235,11 +237,17 @@ def select_crop(context, page: Page, payload: ReportPayload, entry: dict) -> tup
         _shot(popup, "crop_popup")
         return None, f"'{keyword}' 검색 결과가 없음 — 팝업에서 직접 검색·선택하세요"
 
-    exact = [r for r in rows if r["name"].strip() == keyword]
-    if len(exact) != 1:
-        names = ", ".join(r["name"] for r in rows[:8])
+    names = ", ".join(r["name"].strip() for r in rows[:8])
+    if not target:
         return None, (
-            f"'{keyword}'와 정확히 일치하는 작물이 {len(exact)}개 (후보: {names}) "
+            f"'{keyword}' 검색 결과 {len(rows)}건 (후보: {names}) — "
+            "한글 일반명이 없어 자동으로 고르지 않았습니다. 열린 팝업에서 직접 [선택]하세요"
+        )
+
+    exact = [r for r in rows if r["name"].strip() == target]
+    if len(exact) != 1:
+        return None, (
+            f"'{target}'와 정확히 일치하는 작물이 {len(exact)}개 (후보: {names}) "
             "— 열린 팝업에서 직접 [선택]하세요"
         )
 

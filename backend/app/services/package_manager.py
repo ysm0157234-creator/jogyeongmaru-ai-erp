@@ -75,6 +75,13 @@ def build_manifest(variety_name: str, draft_data: dict, assets: DriveAssets, doc
             "신고인_법인명칭": COMPANY["company_name"],
             "신고인_전화번호": COMPANY["phone"],
             "작물_일반명": korean_only(draft_data.get("korean_name")),
+            # 작물 검색에 쓸 말. 한글 일반명이 있으면 그것으로, 없으면 학명으로 찾는다.
+            # 종자원 작물검색은 속명으로도 결과를 준다(예: 'Hydrangea' -> 수국·미국수국·수국속).
+            # 종소명까지 붙이면 결과가 안 나오므로 속명만 쓴다.
+            "작물_검색어": (
+                korean_only(draft_data.get("korean_name"))
+                or next(iter(str(draft_data.get("scientific_name") or "").split()), "")
+            ),
             "작물_학명": str(draft_data.get("scientific_name") or ""),
             "품종_명칭": derive_cultivar(
                 draft_data, draft_data.get("scientific_name", ""), final_name

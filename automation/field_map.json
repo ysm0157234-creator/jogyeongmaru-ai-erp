@@ -119,8 +119,9 @@
       "#crop_nm_kor >> xpath=ancestor::tr[1] >> a:has-text('검색')",
       "tr:has(th:has-text('작물')) a:has-text('검색')"
     ],
-    "field": "작물_일반명",
-    "keyword_selector": "#crop_nm_kor"
+    "field": "작물_검색어",
+    "keyword_selector": "#crop_nm_kor",
+    "match_field": "작물_일반명"
   },
   "char_sheet": {
     "opener": "a:has-text('품종특성기술서 입력')",
