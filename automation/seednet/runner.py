@@ -112,24 +112,24 @@ def fill(page: Page, payload: ReportPayload, field_map: dict) -> tuple[list[str]
 
         try:
             if kind == "select":
-                scope.select_option(selector, label=value)
+                options = scope.eval_on_selector(
+                    selector,
+                    "el => [...el.options].map(o => o.text.trim())",
+                )
+                if value not in options:
+                    close = [o for o in options if value in o or o in value]
+                    todo.append(
+                        f"{name}: 목록에 '{value}'가 없습니다"
+                        + (f" (비슷한 항목: {', '.join(close[:3])})" if close else "")
+                        + " — 직접 선택하세요"
+                    )
+                    continue
+                scope.select_option(selector, label=value, timeout=5000)
             else:
                 scope.fill(selector, value)
             done.append(f"{name} = {value[:44]}")
         except Exception as exc:
             todo.append(f"{name}: {type(exc).__name__} {exc}")
-
-    for label, entry in field_map.get("attachments", {}).items():
-        path = payload.attachments.get(entry.get("source", label))
-        if not path or not Path(path).exists():
-            todo.append(f"{label}: ZIP에 파일이 없음")
-            continue
-        try:
-            scope = _target(page, entry)
-            scope.set_input_files(entry["selector"], str(path))
-            done.append(f"{label} 첨부 = {Path(path).name}")
-        except Exception as exc:
-            todo.append(f"{label}: 자동 첨부 실패 — 직접 첨부 필요 ({type(exc).__name__})")
 
     for name in field_map.get("manual", []):
         todo.append(f"{name}: 자동화 대상 아님 — 직접 처리")

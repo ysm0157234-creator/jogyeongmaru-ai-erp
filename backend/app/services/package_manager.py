@@ -43,6 +43,28 @@ def derive_cultivar(draft_data: dict, scientific_name: str, fallback: str) -> st
     return rest or name
 
 
+# 국립종자원 수입국가 목록에 있는 이름으로 맞춰야 선택된다.
+_COUNTRY_HINTS = (
+    "네덜란드", "독일", "벨기에", "덴마크", "프랑스", "이탈리아", "스페인", "영국",
+    "폴란드", "미국", "캐나다", "일본", "중국", "대만", "베트남", "태국",
+    "뉴질랜드", "호주", "이스라엘", "케냐", "에콰도르", "콜롬비아", "칠레",
+)
+
+
+def country_from(*candidates: str) -> str:
+    """공급사 폴더 이름 등에서 수입국가를 찾아낸다.
+
+    공급사 폴더가 'GreenSeasons_네덜란드'처럼 국가를 달고 있어서, 조사 결과의
+    기본값('해외 생산지')보다 정확하다. 그 값은 종자원 국가 목록에 없어
+    선택되지 않는다.
+    """
+    for text in candidates:
+        for country in _COUNTRY_HINTS:
+            if country in str(text or ""):
+                return country
+    return ""
+
+
 def safe(value: str) -> str:
     return re.sub(r'[\\/:*?"<>|]+', "_", str(value or "")).strip() or "report"
 
@@ -89,7 +111,10 @@ def build_manifest(variety_name: str, draft_data: dict, assets: DriveAssets, doc
             # 국립종자원은 품종명 한글 표기를 따로 받는다(예: PIIHQ-I → 피엘엘에이치큐-엘).
             # 규정상 사람이 정하는 이름이라 AI가 만들지 않고, 신고 화면에서 비면 직접 입력한다.
             "품종_한글명": str(draft_data.get("cultivar_ko") or ""),
-            "원산지": str(draft_data.get("origin") or ""),
+            "원산지": country_from(
+                draft_data.get("origin"), assets.supplier_folder, assets.shipment
+            )
+            or str(draft_data.get("origin") or ""),
             "종자업_등록번호": COMPANY["seed_business_number"],
             # 검역합격증이 스캔 이미지라 번호를 읽어낼 수 없다. 사람이 넣은 값을 우선한다.
             "검역합격_발급번호": str(draft_data.get("quarantine_number") or "").strip()
