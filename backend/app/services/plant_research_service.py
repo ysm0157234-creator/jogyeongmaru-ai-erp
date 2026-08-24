@@ -94,6 +94,22 @@ def _clean_scientific_name(value: Any, fallback: str = "") -> str:
     return re.sub(r"\s+", " ", result).strip()
 
 
+def _cultivar_from_name(name: str, scientific_name: str) -> str:
+    """신고명에서 학명 부분을 걷어내고 남은 품종명을 뽑는다.
+
+    AI가 품종명을 따로 돌려주지 않는 경우가 많다. 그런데 사용자가 넣는 신고명에는
+    거의 항상 품종명이 들어 있다(예: 'yucca color gaurd' -> 'color gaurd').
+    초안 화면에 미리 채워 두면 사람이 확인하고 고치기만 하면 된다.
+    """
+    rest = str(name or "").strip()
+    for word in str(scientific_name or "").split()[:2]:
+        rest = re.sub(rf"\b{re.escape(word)}\b", " ", rest, flags=re.I)
+    # 명명자 표기(L., W.Bartram, Ser.)는 품종명이 아니다.
+    rest = re.sub(r"\b[A-Z][A-Za-z.]*\.(?=\s|$)", " ", rest)
+    rest = re.sub(r"\s+", " ", rest).strip(" '\"·,")
+    return rest
+
+
 def _terms(name: str) -> list[str]:
     words = [
         re.sub(
@@ -1202,7 +1218,10 @@ def research_variety(
         ),
         "cultivar": _clean_text(
             generated.get("cultivar")
-        ),
+        )
+        or _cultivar_from_name(name, generated.get("scientific_name", "")),
+        # 품종명 한글 표기는 규정상 신고인이 정하는 이름이라 AI가 만들지 않는다.
+        "cultivar_ko": "",
         "origin": _clean_text(
             generated.get("origin")
         ),
