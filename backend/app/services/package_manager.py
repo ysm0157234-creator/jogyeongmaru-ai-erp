@@ -7,6 +7,7 @@ import zipfile
 from datetime import datetime, timezone
 
 from app.services.document_manager import COMPANY, DocumentBundle
+from app.services.past_filings import crop_korean_name, cultivar_korean_name
 from app.services.drive_manager import DriveAssets
 
 
@@ -96,12 +97,14 @@ def build_manifest(variety_name: str, draft_data: dict, assets: DriveAssets, doc
             "신고인_주소": COMPANY["address"],
             "신고인_법인명칭": COMPANY["company_name"],
             "신고인_전화번호": COMPANY["phone"],
-            "작물_일반명": korean_only(draft_data.get("korean_name")),
+            "작물_일반명": korean_only(draft_data.get("korean_name"))
+            or crop_korean_name(draft_data.get("scientific_name", "")),
             # 작물 검색에 쓸 말. 한글 일반명이 있으면 그것으로, 없으면 학명으로 찾는다.
             # 종자원 작물검색은 속명으로도 결과를 준다(예: 'Hydrangea' -> 수국·미국수국·수국속).
             # 종소명까지 붙이면 결과가 안 나오므로 속명만 쓴다.
             "작물_검색어": (
                 korean_only(draft_data.get("korean_name"))
+                or crop_korean_name(draft_data.get("scientific_name", ""))
                 or next(iter(str(draft_data.get("scientific_name") or "").split()), "")
             ),
             "작물_학명": str(draft_data.get("scientific_name") or ""),
@@ -110,7 +113,11 @@ def build_manifest(variety_name: str, draft_data: dict, assets: DriveAssets, doc
             ),
             # 국립종자원은 품종명 한글 표기를 따로 받는다(예: PIIHQ-I → 피엘엘에이치큐-엘).
             # 규정상 사람이 정하는 이름이라 AI가 만들지 않고, 신고 화면에서 비면 직접 입력한다.
-            "품종_한글명": str(draft_data.get("cultivar_ko") or ""),
+            "품종_한글명": str(draft_data.get("cultivar_ko") or "")
+            or cultivar_korean_name(
+                draft_data.get("scientific_name", ""),
+                derive_cultivar(draft_data, draft_data.get("scientific_name", ""), final_name),
+            ),
             "원산지": country_from(
                 draft_data.get("origin"), assets.supplier_folder, assets.shipment
             )

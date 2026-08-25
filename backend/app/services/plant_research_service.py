@@ -22,6 +22,7 @@ from app.services.google_search_service import (
 from app.services.inaturalist_service import search_inaturalist_photos
 from app.services.duckduckgo_image_service import search_duckduckgo_images
 from app.services.bing_image_service import search_bing_images
+from app.services.past_filings import crop_korean_name, cultivar_korean_name
 from app.services.web_image_service import extract_page_images
 
 
@@ -1161,6 +1162,10 @@ def research_variety(
     # 2순위: 기존 Serper 웹검색 결과 페이지에서 추출한 이미지 — 크롤링 후보가 부족할 때만 보조로 붙인다.
     # Wikimedia Commons는 흑백 고서 이미지 문제로 더 이상 사용하지 않는다.
     scientific_query = generated.get("scientific_name") or name
+    _scientific = str(generated.get("scientific_name") or "")
+    _cultivar = _clean_text(generated.get("cultivar")) or _cultivar_from_name(name, _scientific)
+    # AI가 영문 일반명을 돌려주는 일이 잦다. 과거 신고 기록의 한글 작물명을 우선한다.
+    _korean_name = crop_korean_name(_scientific)
     # 전체사진·근접사진 수집은 서로 독립적이라 동시에 돌린다(각각 네트워크 대기가 대부분).
     with ThreadPoolExecutor(max_workers=2) as pool:
         overall_future = pool.submit(
@@ -1204,8 +1209,11 @@ def research_variety(
         "matched_name": (
             generated["matched_name"]
         ),
+        # 과거 신고 기록에 한글 작물명이 있으면 그것을 쓴다.
+        # AI는 'Hydrangea'처럼 영문을 돌려줄 때가 있는데, 종자원 작물 등록부는 한글로 찾는다.
         "korean_name": (
-            generated["korean_name"]
+            _korean_name
+            or generated["korean_name"]
         ),
         "scientific_name": (
             generated["scientific_name"]
@@ -1216,12 +1224,10 @@ def research_variety(
         "species": _clean_text(
             generated.get("species")
         ),
-        "cultivar": _clean_text(
-            generated.get("cultivar")
-        )
-        or _cultivar_from_name(name, generated.get("scientific_name", "")),
-        # 품종명 한글 표기는 규정상 신고인이 정하는 이름이라 AI가 만들지 않는다.
-        "cultivar_ko": "",
+        "cultivar": _cultivar,
+        # 품종 한글표기는 AI가 짓지 않는다. 전에 신고한 적 있는 품종이면
+        # 그때 종자원에 통과된 표기를 그대로 쓰고, 없으면 비워 둔다.
+        "cultivar_ko": cultivar_korean_name(_scientific, _cultivar),
         "origin": _clean_text(
             generated.get("origin")
         ),
