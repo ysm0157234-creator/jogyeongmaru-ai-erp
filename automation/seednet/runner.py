@@ -268,7 +268,14 @@ def fill_char_sheet(context, page: Page, payload: ReportPayload, entry: dict, *,
 
     # 이 화면은 품종명이 정해져야 열린다. 비어 있으면 사이트가 안내창만 띄우고 끝난다.
     guard = entry.get("requires_field")
-    if guard and not str(payload.fields.get(guard, "")).strip():
+    watch = entry.get("requires_selector")
+    filled = str(payload.fields.get(guard, "")).strip() if guard else ""
+    if watch and not filled:
+        try:
+            filled = page.input_value(watch, timeout=2000).strip()
+        except Exception:
+            filled = ""
+    if guard and not filled:
         return done, [f"특성기술서: {guard}이(가) 비어 있어 열지 못했습니다 — 품종명을 먼저 입력하세요"]
 
     try:
@@ -323,6 +330,28 @@ def fill_char_sheet(context, page: Page, payload: ReportPayload, entry: dict, *,
     return done, todo
 
 
+def wait_for_crop(page: Page, seconds: int = 180) -> str:
+    """사람이 팝업에서 작물을 고를 때까지 기다린다.
+
+    작물이 정해지지 않으면 임시저장이 통과하지 못해 첨부까지 갈 수 없다.
+    예전에는 여기서 실행을 끝냈는데, 사용자가 브라우저 앞에 있으므로
+    고르는 것을 기다렸다가 나머지를 이어서 하는 편이 훨씬 낫다.
+    """
+    log(f"      작물 선택을 기다립니다 (최대 {seconds // 60}분). 팝업에서 [선택]을 누르세요.")
+    for _ in range(seconds * 2):
+        try:
+            value = page.input_value("#crop_gubun", timeout=1000).strip()
+            if value:
+                picked = page.input_value("#crop_nm_kor", timeout=1000).strip()
+                log(f"      작물 선택 확인: {picked} / {value}")
+                return picked or value
+        except Exception:
+            pass
+        page.wait_for_timeout(500)
+    log("      작물 선택을 기다리다 시간이 지났습니다.")
+    return ""
+
+
 def click_actions(page: Page, actions: list[dict], payload: ReportPayload) -> tuple[list[str], list[str]]:
     """입력 후 눌러야 하는 버튼(중복확인 등)을 순서대로 누른다."""
     done, failed = [], []
@@ -332,7 +361,14 @@ def click_actions(page: Page, actions: list[dict], payload: ReportPayload) -> tu
         # 값이 있어야 의미가 있는 버튼은 값이 비면 누르지 않는다.
         # (중복확인은 품종명이 비어 있으면 확인할 대상 자체가 없다.)
         guard = action.get("requires_field")
-        if guard and not str(payload.fields.get(guard, "")).strip():
+        watch = action.get("requires_selector")
+        filled = str(payload.fields.get(guard, "")).strip() if guard else ""
+        if watch and not filled:
+            try:
+                filled = page.input_value(watch, timeout=2000).strip()
+            except Exception:
+                filled = ""
+        if guard and not filled:
             log(f"      {name} 건너뜀 — {guard}이(가) 비어 있음")
             failed.append(f"{name}: {guard}이(가) 비어 있어 누르지 않았습니다")
             continue
@@ -473,8 +509,13 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
             todo.append(f"작물 검색: {problem}")
             if interactive:
                 input("\n  작물을 팝업에서 직접 선택한 뒤 Enter > ")
+                crop_ok = True
             else:
-                crop_ok = False
+                picked = wait_for_crop(page)
+                if picked:
+                    done.append(f"작물 선택(직접) = {picked}")
+                else:
+                    crop_ok = False
 
     log("   - 입력값 채우는 중")
     filled, filled_todo = fill(page, payload, field_map)
@@ -497,13 +538,8 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
         done.extend(sheet_done)
         todo.extend(sheet_todo)
 
-    # 작물이 정해지지 않으면 임시저장이 통과하지 못하고 첨부도 열리지 않는다.
-    # 반쯤 실패한 상태로 밀어붙이지 말고 여기서 멈춘다.
     if not crop_ok:
-        todo.append(
-            "작물을 열린 팝업에서 직접 선택한 뒤, [임시저장]과 첨부를 이어서 진행하세요 "
-            "(자동 진행은 여기서 멈춥니다)"
-        )
+        todo.append("작물이 끝내 선택되지 않아 임시저장·첨부를 진행하지 못했습니다")
         todo.append("[종자원 접수요청] — 내용을 확인하고 직접 누르세요")
         close_session(playwright, browser, context, keep_open=True)
         _write_log()

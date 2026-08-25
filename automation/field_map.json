@@ -105,7 +105,8 @@
       "name": "품종명 중복확인",
       "selector": "tr:has(#var_nm_kor) a:has-text('중복확인')",
       "requires_field": "품종_한글명",
-      "wait": 2500
+      "wait": 2500,
+      "requires_selector": "#var_nm_kor"
     }
   ],
   "save_draft": {
@@ -141,6 +142,7 @@
       "균일성·안정성 여부, 작기(춘작/하작/추작/동작)",
       "대조품종, 대조품종과 구별되는 특성, 균일성·안정성 기술"
     ],
-    "requires_field": "품종_한글명"
+    "requires_field": "품종_한글명",
+    "requires_selector": "#var_nm_kor"
   }
 }
