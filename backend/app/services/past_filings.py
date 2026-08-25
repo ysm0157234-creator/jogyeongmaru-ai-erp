@@ -139,6 +139,53 @@ def suggest_cultivar_korean(scientific_name: str, cultivar: str) -> str:
     return korean if re.search(r"[가-힣]", korean) else ""
 
 
+def suggest_crop_korean(scientific_name: str) -> str:
+    """작물 한글명을 정한다.
+
+    과거 신고 기록에 있으면 그 표기를 그대로 쓴다. 없으면(처음 다루는 속·종)
+    AI에게 국명을 묻는다. 종자원 작물 등록부는 한글로 찾기 때문에 영문 이름으로는
+    검색이 되지 않는다.
+    """
+    known = crop_korean_name(scientific_name)
+    if known:
+        return known
+
+    name = str(scientific_name or "").strip()
+    if not name:
+        return ""
+
+    try:
+        from app.services.gemini_service import GeminiService
+
+        result = GeminiService().structure_json(crop_name_prompt(name))
+        korean = str((result.data or {}).get("korean") or "").strip()
+    except Exception as exc:
+        print(f"[past_filings] 작물 한글명 조회 실패 {name!r}: {type(exc).__name__} {exc}", flush=True)
+        return ""
+
+    return korean if re.search(r"[가-힣]", korean) else ""
+
+
+def crop_name_prompt(scientific_name: str) -> str:
+    """작물 국명을 묻는 프롬프트. 회사가 써 온 표기를 예시로 보여준다."""
+    crops, _ = _tables()
+    samples = "\n".join(f"{k} -> {v}" for k, v in list(crops.items())[:20])
+    return (
+        "너는 국립종자원 품종 생산·수입판매 신고서를 작성한다.\n"
+        "학명에 해당하는 식물의 한글 이름(국명)을 답하라.\n\n"
+        "우리 회사가 신고서에 써 온 표기다. 같은 방식으로 답하라.\n"
+        f"{samples}\n\n"
+        "규칙\n"
+        "1. 국가표준식물목록에 쓰이는 국명을 쓴다.\n"
+        "2. 품종명은 빼고 작물 이름만 쓴다.\n"
+        "3. 학명을 소리대로 옮기지 말고 실제 국명을 쓴다"
+        " (Yucca filamentosa는 '유카'가 아니라 '실유카').\n"
+        "4. 국명이 확실하지 않으면 빈 문자열로 답한다.\n\n"
+        f"학명: {scientific_name}\n\n"
+        '결과를 {"korean": "국명"} 형태의 JSON으로만 답하라.'
+    )
+
+
 def transliteration_prompt(cultivar: str) -> str:
     """품종명 한글표기를 물어보는 프롬프트. 회사 표기 방식을 예시로 보여준다."""
     samples = "\n".join(f"{eng} -> {kor}" for eng, kor in _STYLE_EXAMPLES)

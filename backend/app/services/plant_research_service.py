@@ -22,7 +22,7 @@ from app.services.google_search_service import (
 from app.services.inaturalist_service import search_inaturalist_photos
 from app.services.duckduckgo_image_service import search_duckduckgo_images
 from app.services.bing_image_service import search_bing_images
-from app.services.past_filings import crop_korean_name, suggest_cultivar_korean
+from app.services.past_filings import suggest_crop_korean, suggest_cultivar_korean
 from app.services.web_image_service import extract_page_images
 
 
@@ -30,7 +30,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v25-parallel-image-search"
+BUILD_VERSION = "v29-korean-naming"
 
 
 def _norm(value: Any) -> str:
@@ -1165,7 +1165,7 @@ def research_variety(
     _scientific = str(generated.get("scientific_name") or "")
     _cultivar = _clean_text(generated.get("cultivar")) or _cultivar_from_name(name, _scientific)
     # AI가 영문 일반명을 돌려주는 일이 잦다. 과거 신고 기록의 한글 작물명을 우선한다.
-    _korean_name = crop_korean_name(_scientific)
+    _korean_name = suggest_crop_korean(_scientific)
     _cultivar_ko = suggest_cultivar_korean(_scientific, _cultivar)
     # 전체사진·근접사진 수집은 서로 독립적이라 동시에 돌린다(각각 네트워크 대기가 대부분).
     with ThreadPoolExecutor(max_workers=2) as pool:
