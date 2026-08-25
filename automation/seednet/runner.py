@@ -167,10 +167,15 @@ def select_crop(context, page: Page, payload: ReportPayload, entry: dict) -> tup
     (예: '유카'로 검색하면 대왕유카·다화유카리·무지개유카리 등이 함께 나온다.)
     """
     # 검색은 한글 일반명이 없으면 속명으로 한다. 자동 선택 판정은 한글 일반명으로만 한다.
-    keyword = str(payload.fields.get(entry.get("field", "작물_검색어"), "")).strip()
+    keywords = [
+        str(payload.fields.get(f, "")).strip()
+        for f in entry.get("fields", [entry.get("field", "작물_검색어")])
+    ]
+    keywords = [k for i, k in enumerate(keywords) if k and k not in keywords[:i]]
     target = str(payload.fields.get(entry.get("match_field", "작물_일반명"), "")).strip()
-    if not keyword:
+    if not keywords:
         return None, "작물명·학명이 모두 비어 있음 — 팝업에서 직접 검색·선택하세요"
+    keyword = keywords[0]
 
     # 팝업은 본문 '일반명' 칸의 값을 물고 열린다(팝업 URL에 crop_nm_kor로 실려 간다).
     # 그래서 팝업을 열기 전에 본문 칸부터 채운다.
@@ -232,6 +237,21 @@ def select_crop(context, page: Page, payload: ReportPayload, entry: dict) -> tup
             log(f"      팝업 안에서 재검색 → {len(rows)}건")
         except Exception as exc:
             return None, f"작물 검색 실패: {type(exc).__name__} — 팝업에서 직접 검색·선택하세요"
+
+    for alternate in keywords[1:]:
+        if rows:
+            break
+        log(f"      '{keyword}' 결과 없음 → '{alternate}'로 다시 찾습니다")
+        try:
+            popup.fill("#crop_nm_kor", alternate)
+            popup.click("a:has-text('검색')")
+            popup.wait_for_load_state("domcontentloaded")
+            popup.wait_for_timeout(2500)
+            rows = _crop_rows(popup)
+            keyword = alternate
+            log(f"      검색 결과 {len(rows)}건" + (f" → {[r['name'].strip() for r in rows[:6]]}" if rows else ""))
+        except Exception as exc:
+            log(f"      재검색 실패: {type(exc).__name__}")
 
     if not rows:
         _shot(popup, "crop_popup")

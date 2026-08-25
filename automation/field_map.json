@@ -63,8 +63,8 @@
     },
     "작물_세부학명": {
       "selector": "#tech_nm_sub",
-      "field": "작물_학명",
-      "note": "작물 등록부 학명(tech_nm)은 작물 선택이 채우므로 건드리지 않는다"
+      "field": "작물_학명_전체",
+      "note": "품종명을 작은따옴표로 붙인 정식 표기"
     }
   },
   "attachments": {
@@ -120,9 +120,12 @@
       "#crop_nm_kor >> xpath=ancestor::tr[1] >> a:has-text('검색')",
       "tr:has(th:has-text('작물')) a:has-text('검색')"
     ],
-    "field": "작물_검색어",
     "keyword_selector": "#crop_nm_kor",
-    "match_field": "작물_일반명"
+    "match_field": "작물_일반명",
+    "fields": [
+      "작물_검색어",
+      "작물_검색어_대체"
+    ]
   },
   "char_sheet": {
     "opener": "a:has-text('품종특성기술서 입력')",

@@ -67,6 +67,24 @@ def country_from(*candidates: str) -> str:
     return ""
 
 
+def full_botanical_name(scientific_name: str, cultivar: str) -> str:
+    """원예 품종의 정식 표기를 만든다.
+
+    품종은 학명 뒤에 작은따옴표로 붙이는 것이 국제 규약이다.
+      Yucca filamentosa + Color Guard -> Yucca filamentosa 'Color Guard'
+    신고서 세부학명 칸에는 이 형태로 적어야 어떤 품종인지 분명해진다.
+    """
+    base = " ".join(str(scientific_name or "").split())
+    name = str(cultivar or "").strip().strip("'\"")
+    if not base:
+        return name
+    if not name:
+        return base
+    if "'" in base:  # 이미 품종이 붙어 있다
+        return base
+    return f"{base} '{name.title() if name.islower() else name}'"
+
+
 def safe(value: str) -> str:
     return re.sub(r'[\\/:*?"<>|]+', "_", str(value or "")).strip() or "report"
 
@@ -110,9 +128,18 @@ def build_manifest(variety_name: str, draft_data: dict, assets: DriveAssets, doc
             "작물_검색어": (
                 korean_only(draft_data.get("korean_name"))
                 or suggest_crop_korean(draft_data.get("scientific_name", ""))
-                or next(iter(str(draft_data.get("scientific_name") or "").split()), "")
+                or " ".join(str(draft_data.get("scientific_name") or "").split()[:2])
+            ),
+            # 종까지 넣어 찾으면 결과가 없을 때가 있어, 속명으로 한 번 더 찾는다.
+            "작물_검색어_대체": next(
+                iter(str(draft_data.get("scientific_name") or "").split()), ""
             ),
             "작물_학명": str(draft_data.get("scientific_name") or ""),
+            # 세부학명 칸에 넣을 정식 표기. 품종명을 작은따옴표로 붙인다.
+            "작물_학명_전체": full_botanical_name(
+                draft_data.get("scientific_name", ""),
+                derive_cultivar(draft_data, draft_data.get("scientific_name", ""), final_name),
+            ),
             "품종_명칭": derive_cultivar(
                 draft_data, draft_data.get("scientific_name", ""), final_name
             ),
