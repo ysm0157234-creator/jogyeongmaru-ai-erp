@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 from app.services.document_manager import COMPANY, DocumentBundle
 from app.services.past_filings import crop_korean_name, cultivar_korean_name
+from app.services.plant_research_service import BUILD_VERSION
 from app.services.drive_manager import DriveAssets
 
 
@@ -73,7 +74,9 @@ def safe(value: str) -> str:
 def build_manifest(variety_name: str, draft_data: dict, assets: DriveAssets, documents: DocumentBundle, warnings: list[str]) -> dict:
     final_name = draft_data.get("matched_name") or variety_name
     return {
-        "build_version": "v26-hwp-submission-document",
+        # 버전 문자열은 plant_research_service 한 곳에서만 관리한다.
+        # (예전에 ai_reports.py가 따로 들고 있다가 실제 코드와 어긋난 적이 있다.)
+        "build_version": BUILD_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "variety": variety_name,
         "matched_name": final_name,
