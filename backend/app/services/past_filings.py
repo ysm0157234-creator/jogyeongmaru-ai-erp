@@ -71,3 +71,89 @@ def cultivar_korean_name(scientific_name: str, cultivar: str) -> str:
     # 학명이 조금 달라도 품종명이 같으면 같은 품종으로 본다.
     matches = {v for k, v in cultivars.items() if k.split("|", 1)[1] == name}
     return matches.pop() if len(matches) == 1 else ""
+
+
+# 회사가 실제로 써 온 표기 방식을 보여주는 예시.
+# 두 갈래가 뚜렷하다.
+#   1) 발음되는 이름은 소리대로 적는다        (Midwinter Fire -> 미드윈터 파이어)
+#   2) 자음만 늘어선 코드는 알파벳 이름을 적는다 (HAOPR012 -> 에이치에이오피알012)
+_STYLE_EXAMPLES = (
+    ("Hurricane", "허리케인"),
+    ("Midwinter Fire", "미드윈터 파이어"),
+    ("Anny's Winter Orange", "애니스 윈터 오렌지"),
+    ("Baby Blue", "베이비 블루"),
+    ("The President", "더 프레지던트"),
+    ("Ville de Lyon", "빌리 디 리옹"),
+    ("Mirror Jam", "미러잼"),
+    ("Wims Red", "윔스레드"),
+    ("Royal Purple", "로열퍼플"),
+    ("Summer Chocolate", "썸머초콜릿"),
+    ("Strawberry Fields", "스트로베리필드"),
+    ("Heckenpracht", "헤켄프라치"),
+    ("Danica", "데니카"),
+    ("Snowbelle", "스노우벨"),
+    ("Rensun", "렌썬"),
+    ("Evipo106", "에비포106"),
+    ("Verpaalen02", "페르파렌2"),
+    ("Biv01", "비브01"),
+    ("Darkap1", "다크아프1"),
+    ("Minall2", "민올2"),
+    ("Rwoods6", "알우즈6"),
+    ("JWN Wood4", "제이더블유엔우드4"),
+    ("HAOPR012", "에이치에이오피알012"),
+    ("NCHA2", "엔시에이치에이2"),
+    ("JS4", "제이에스4"),
+    ("ZR1", "제트알1"),
+    ("TVP1", "티브이피1"),
+    ("GRHP11", "지알에이치피11"),
+    ("MUNN001", "엠유엔엔001"),
+    ("NC2016-2", "엔씨2016-2"),
+)
+
+
+def suggest_cultivar_korean(scientific_name: str, cultivar: str) -> str:
+    """품종 한글표기를 정한다.
+
+    전에 신고한 품종이면 그때 표기를 그대로 쓴다. 생산·수입판매 신고는 늘 새 품종이라
+    대부분은 기록에 없으므로, 회사가 써 온 표기 방식을 예시로 주고 AI에게 음차를 시킨다.
+    결과는 초안 화면에 보이므로 사람이 확인하고 고칠 수 있다.
+    """
+    known = cultivar_korean_name(scientific_name, cultivar)
+    if known:
+        return known
+
+    name = str(cultivar or "").strip()
+    if not name:
+        return ""
+
+    try:
+        from app.services.gemini_service import GeminiService
+
+        result = GeminiService().structure_json(transliteration_prompt(name))
+        korean = str((result.data or {}).get("korean") or "").strip()
+    except Exception as exc:
+        print(f"[past_filings] 품종 한글표기 생성 실패 {name!r}: {type(exc).__name__} {exc}", flush=True)
+        return ""
+
+    # 한글이 하나도 없으면 음차가 아니라 뭔가 잘못 온 것이다.
+    return korean if re.search(r"[가-힣]", korean) else ""
+
+
+def transliteration_prompt(cultivar: str) -> str:
+    """품종명 한글표기를 물어보는 프롬프트. 회사 표기 방식을 예시로 보여준다."""
+    samples = "\n".join(f"{eng} -> {kor}" for eng, kor in _STYLE_EXAMPLES)
+    return (
+        "너는 국립종자원 품종 생산·수입판매 신고서를 작성한다.\n"
+        "품종명(영문)을 한글 표기로 바꿔라. 뜻을 번역하지 말고 소리대로 적는다.\n\n"
+        "우리 회사가 지금까지 신고한 표기 방식이다. 이 방식을 그대로 따라라.\n"
+        f"{samples}\n\n"
+        "규칙\n"
+        "1. 발음되는 이름은 소리대로 적는다.\n"
+        "2. 자음만 늘어서서 발음할 수 없는 약자는 알파벳 이름을 하나씩 적는다"
+        " (J=제이, W=더블유, H=에이치, Z=제트, R=알, C=씨 또는 시).\n"
+        "3. 숫자는 그대로 둔다. 앞의 0도 원문 그대로 둔다.\n"
+        "4. 아포스트로피(')는 뺀다.\n"
+        "5. 뜻을 옮기지 않는다. Red를 '빨강'으로 적지 않는다.\n\n"
+        f"품종명: {cultivar}\n\n"
+        '결과를 {"korean": "한글표기"} 형태의 JSON으로만 답하라.'
+    )

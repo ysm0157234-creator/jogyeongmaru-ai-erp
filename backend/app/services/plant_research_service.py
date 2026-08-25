@@ -22,7 +22,7 @@ from app.services.google_search_service import (
 from app.services.inaturalist_service import search_inaturalist_photos
 from app.services.duckduckgo_image_service import search_duckduckgo_images
 from app.services.bing_image_service import search_bing_images
-from app.services.past_filings import crop_korean_name, cultivar_korean_name
+from app.services.past_filings import crop_korean_name, suggest_cultivar_korean
 from app.services.web_image_service import extract_page_images
 
 
@@ -1166,6 +1166,7 @@ def research_variety(
     _cultivar = _clean_text(generated.get("cultivar")) or _cultivar_from_name(name, _scientific)
     # AI가 영문 일반명을 돌려주는 일이 잦다. 과거 신고 기록의 한글 작물명을 우선한다.
     _korean_name = crop_korean_name(_scientific)
+    _cultivar_ko = suggest_cultivar_korean(_scientific, _cultivar)
     # 전체사진·근접사진 수집은 서로 독립적이라 동시에 돌린다(각각 네트워크 대기가 대부분).
     with ThreadPoolExecutor(max_workers=2) as pool:
         overall_future = pool.submit(
@@ -1225,9 +1226,9 @@ def research_variety(
             generated.get("species")
         ),
         "cultivar": _cultivar,
-        # 품종 한글표기는 AI가 짓지 않는다. 전에 신고한 적 있는 품종이면
-        # 그때 종자원에 통과된 표기를 그대로 쓰고, 없으면 비워 둔다.
-        "cultivar_ko": cultivar_korean_name(_scientific, _cultivar),
+        # 품종 한글표기. 전에 신고한 품종이면 그때 표기를, 새 품종이면 회사가 써 온
+        # 방식대로 음차한 안을 넣는다. 초안 화면에서 확인·수정할 수 있다.
+        "cultivar_ko": _cultivar_ko,
         "origin": _clean_text(
             generated.get("origin")
         ),
