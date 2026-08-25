@@ -129,11 +129,13 @@ def suggest_cultivar_korean(scientific_name: str, cultivar: str) -> str:
     try:
         from app.services.gemini_service import GeminiService
 
-        result = GeminiService().structure_json(transliteration_prompt(name))
-        korean = str((result.data or {}).get("korean") or "").strip()
+        data = GeminiService().ask_json(transliteration_prompt(name))
+        korean = str((data or {}).get("korean") or "").strip()
     except Exception as exc:
-        print(f"[past_filings] 품종 한글표기 생성 실패 {name!r}: {type(exc).__name__} {exc}", flush=True)
+        print(f"[past_filings] 품종 한글표기 실패 {name!r}: {type(exc).__name__} {exc}", flush=True)
         return ""
+
+    print(f"[past_filings] 품종 한글표기 {name!r} -> {korean!r}", flush=True)
 
     # 한글이 하나도 없으면 음차가 아니라 뭔가 잘못 온 것이다.
     return korean if re.search(r"[가-힣]", korean) else ""
@@ -157,11 +159,13 @@ def suggest_crop_korean(scientific_name: str) -> str:
     try:
         from app.services.gemini_service import GeminiService
 
-        result = GeminiService().structure_json(crop_name_prompt(name))
-        korean = str((result.data or {}).get("korean") or "").strip()
+        data = GeminiService().ask_json(crop_name_prompt(name))
+        korean = str((data or {}).get("korean") or "").strip()
     except Exception as exc:
-        print(f"[past_filings] 작물 한글명 조회 실패 {name!r}: {type(exc).__name__} {exc}", flush=True)
+        print(f"[past_filings] 작물 한글명 실패 {name!r}: {type(exc).__name__} {exc}", flush=True)
         return ""
+
+    print(f"[past_filings] 작물 한글명 {name!r} -> {korean!r}", flush=True)
 
     return korean if re.search(r"[가-힣]", korean) else ""
 

@@ -30,7 +30,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v29-korean-naming"
+BUILD_VERSION = "v30-korean-naming-fix"
 
 
 def _norm(value: Any) -> str:

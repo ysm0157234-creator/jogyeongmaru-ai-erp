@@ -284,6 +284,29 @@ JSON 전체를 다시 작성하라.
 9. JSON 이외에는 출력하지 않는다.
 """
 
+    def ask_json(self, prompt: str, *, max_output_tokens: int = 256) -> dict[str, Any]:
+        """품종 프로필이 아닌 짧은 질문에 쓴다.
+
+        structure_json은 품종 프로필 전용 검증(matched_name·characteristics_draft 등)을
+        거치기 때문에, 한글 이름 하나만 받는 용도로는 쓸 수 없다(항상 검증에서 걸린다).
+        """
+        errors_seen: list[str] = []
+        for model_id in self._model_candidates():
+            try:
+                data = self._generate_json(
+                    model_id=model_id, prompt=prompt, max_output_tokens=max_output_tokens
+                )
+                self.last_used_model = model_id
+                return data
+            except errors.APIError as exc:
+                errors_seen.append(f"{model_id}: {exc.code} {str(exc)[:200]}")
+                if exc.code == 429:
+                    raise GeminiQuotaError("Gemini 무료 할당량을 초과했습니다.") from exc
+            except GeminiError as exc:
+                errors_seen.append(f"{model_id}: {exc}")
+
+        raise GeminiError("Gemini 호출 실패: " + " / ".join(errors_seen))
+
     def structure_json(self, prompt: str) -> GeminiCallResult:
         errors_seen: list[str] = []
         for model_id in self._model_candidates():
