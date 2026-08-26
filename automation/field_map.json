@@ -100,15 +100,7 @@
   "manual_attachments": [
     "종자업등록증 — 등록증 원본 파일이 ERP ZIP에 없음"
   ],
-  "actions_after_fill": [
-    {
-      "name": "품종명 중복확인",
-      "selector": "tr:has(#var_nm_kor) a:has-text('중복확인')",
-      "requires_field": "품종_한글명",
-      "wait": 2500,
-      "requires_selector": "#var_nm_kor"
-    }
-  ],
+  "actions_after_fill": [],
   "save_draft": {
     "name": "임시저장",
     "selector": "a:has-text('임시저장')",
@@ -147,5 +139,10 @@
     ],
     "requires_field": "품종_한글명",
     "requires_selector": "#var_nm_kor"
+  },
+  "variety_check": {
+    "opener": "tr:has(#var_nm_kor) a:has-text('중복확인')",
+    "field": "품종_한글명",
+    "source_selector": "#var_nm_kor"
   }
 }

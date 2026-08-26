@@ -272,8 +272,9 @@ def select_crop(context, page: Page, payload: ReportPayload, entry: dict) -> tup
         )
 
     popup.click(f"a:has-text('선택') >> nth={exact[0]['index']}")
-    popup.wait_for_timeout(1500)
-    return f"{exact[0]['name']} ({exact[0]['code']})", ""
+    settle(popup)          # 선택하면 팝업이 스스로 닫힌다
+    settle(page, 800)      # 본문에 값이 반영될 시간
+    return f"{exact[0]['name'].strip()} ({exact[0]['code']})", ""
 
 
 def fill_char_sheet(context, page: Page, payload: ReportPayload, entry: dict, *, interactive: bool = True) -> tuple[list[str], list[str]]:
@@ -360,6 +361,9 @@ def wait_for_crop(page: Page, seconds: int = 180) -> str:
     log(f"      작물 선택을 기다립니다 (최대 {seconds // 60}분). 팝업에서 [선택]을 누르세요.")
     for _ in range(seconds * 2):
         try:
+            if page.is_closed():
+                log("      창이 닫혀 작물 선택 대기를 멈춥니다.")
+                return ""
             value = page.input_value("#crop_gubun", timeout=1000).strip()
             if value:
                 picked = page.input_value("#crop_nm_kor", timeout=1000).strip()
@@ -370,6 +374,68 @@ def wait_for_crop(page: Page, seconds: int = 180) -> str:
         page.wait_for_timeout(500)
     log("      작물 선택을 기다리다 시간이 지났습니다.")
     return ""
+
+
+def verify_variety_name(context, page: Page, payload: ReportPayload, entry: dict) -> tuple[str | None, str]:
+    """품종명 중복확인 팝업을 끝까지 처리한다.
+
+    품종명칭을 넣고 [목록조회]를 누른 뒤, '사용가능한 품종명입니다'가 나오면 [선택]까지 누른다.
+    이미 등록된 이름이면 고르지 않고 그대로 알린다. 이름을 다시 정하는 것은 신고인 몫이다.
+    """
+    name = str(payload.fields.get(entry.get("field", "품종_한글명"), "")).strip()
+    if not name:
+        # ZIP에 없으면 화면에 사람이 넣어둔 값을 쓴다.
+        try:
+            name = page.input_value(entry.get("source_selector", "#var_nm_kor"), timeout=2000).strip()
+        except Exception:
+            name = ""
+    if not name:
+        return None, "품종 한글명이 없어 중복확인을 하지 못했습니다"
+
+    try:
+        popup = _open_popup(context, page, entry["opener"])
+    except Exception as exc:
+        _shot(page, "varcheck_open")
+        return None, f"중복확인 팝업이 열리지 않았습니다: {type(exc).__name__} — 직접 누르세요"
+
+    try:
+        popup.wait_for_load_state("domcontentloaded")
+        settle(popup, 800)
+
+        for selector in (
+            "tr:has(th:has-text('품종명칭')) input[type=text]",
+            "input[name=var_nm_kor]",
+            "#var_nm_kor",
+        ):
+            try:
+                popup.fill(selector, name, timeout=2500)
+                log(f"      중복확인 품종명칭 = {name!r}")
+                break
+            except Exception:
+                continue
+
+        popup.click("a:has-text('목록조회'), button:has-text('목록조회'), input[value='목록조회']", timeout=6000)
+        settle(popup, 2500)
+
+        body = popup.inner_text("body", timeout=5000)
+        if "사용가능" in body:
+            popup.click("a:has-text('선택'), button:has-text('선택'), input[value='선택']", timeout=6000)
+            settle(popup)
+            settle(page, 800)
+            log(f"      중복확인 통과 — {name!r} 선택")
+            return name, ""
+
+        _shot(popup, "varcheck_result")
+        return None, f"중복확인: '{name}'이 사용가능으로 나오지 않았습니다 — 팝업에서 직접 확인하세요"
+    except Exception as exc:
+        _shot(popup, "varcheck")
+        return None, f"중복확인 처리 실패: {type(exc).__name__} — 직접 하세요"
+    finally:
+        try:
+            if not popup.is_closed():
+                popup.close()
+        except Exception:
+            pass
 
 
 def click_actions(page: Page, actions: list[dict], payload: ReportPayload) -> tuple[list[str], list[str]]:
@@ -424,6 +490,21 @@ def watch_dialogs(page: Page) -> list[str]:
     return messages
 
 
+def settle(target, ms: int = 1500) -> None:
+    """잠깐 기다린다. 대상이 이미 닫혔으면 그냥 넘어간다.
+
+    이 사이트의 팝업은 [선택]·[파일 첨부하기]를 누르면 스스로 닫힌다.
+    닫힌 창을 기다리면 TargetClosedError가 나는데, 그걸 잡지 않아서
+    작물 선택에 성공하고도 실행 전체가 죽었다.
+    """
+    try:
+        if hasattr(target, "is_closed") and target.is_closed():
+            return
+        target.wait_for_timeout(ms)
+    except Exception:
+        return
+
+
 def _open_popup(context, page: Page, opener: str, timeout: int = 15000):
     """본문의 버튼을 눌러 팝업 창을 연다."""
     before = set(context.pages)
@@ -454,7 +535,7 @@ def _upload_in_popup(popup, path: Path, note: str) -> None:
                 continue
 
     popup.click("a:has-text('파일 첨부하기')")
-    popup.wait_for_timeout(1500)
+    settle(popup)
 
 
 def attach(context, payload: ReportPayload, field_map: dict) -> tuple[list[str], list[str]]:
@@ -522,7 +603,11 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
     crop_ok = True
     crop = field_map.get("crop_search")
     if crop:
-        picked, problem = select_crop(context, page, payload, crop)
+        try:
+            picked, problem = select_crop(context, page, payload, crop)
+        except Exception as exc:
+            _shot(page, "crop")
+            picked, problem = None, f"작물 검색 중 오류: {type(exc).__name__} {str(exc)[:80]}"
         if picked:
             done.append(f"작물 선택 = {picked}")
         else:
@@ -546,6 +631,14 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
     todo.extend(filled_todo)
 
     # 사이트가 품종명 확정(중복확인)을 먼저 요구하므로 특성기술서보다 앞에 둔다.
+    check = field_map.get("variety_check")
+    if check:
+        picked, problem = verify_variety_name(context, page, payload, check)
+        if picked:
+            done.append(f"품종명 중복확인 = {picked}")
+        else:
+            todo.append(problem)
+
     pressed, unpressed = click_actions(page, field_map.get("actions_after_fill", []), payload)
     done.extend(pressed)
     todo.extend(unpressed)
