@@ -392,6 +392,26 @@ def fill_char_sheet(context, page: Page, payload: ReportPayload, entry: dict, *,
             try:
                 popup.fill(selector, value, timeout=4000)
                 after = popup.input_value(selector, timeout=2000)
+
+                # 사이트 검사에 걸려 방금 넣은 값이 지워지는 칸이 있다.
+                # 그때는 자바스크립트로 직접 넣고 입력이 있었다고 알린다.
+                if not after.strip():
+                    popup.evaluate(
+                        "([sel, val]) => {"
+                        " const el = document.querySelector(sel);"
+                        " el.removeAttribute('readonly'); el.disabled = false; el.value = val;"
+                        " el.dispatchEvent(new Event('input', {bubbles: true}));"
+                        " el.dispatchEvent(new Event('change', {bubbles: true})); }",
+                        [selector, value],
+                    )
+                    after = popup.input_value(selector, timeout=2000)
+                    info = popup.eval_on_selector(
+                        selector,
+                        "el => ({readonly: el.readOnly, disabled: el.disabled,"
+                        " max: el.getAttribute('maxlength'), tag: el.tagName})",
+                    )
+                    log(f"      특성기술서 {name} 비워짐 → 직접 대입 (실제 {len(after)}자) {info}")
+
                 log(f"      특성기술서 {name} ← {source} ({len(value)}자) / 칸 {found}개 / 실제 {len(after)}자")
                 done.append(f"특성기술서 {name}")
             except Exception as exc:
@@ -635,15 +655,28 @@ def _upload_in_popup(popup, path: Path, note: str) -> None:
                 continue
 
     # 버튼 이름이 화면마다 조금씩 다르다.
+    uploaded = False
     for label in ("파일 첨부하기", "파일 올리기", "첨부하기", "올리기", "등록"):
         try:
             popup.click(f"a:has-text('{label}'), button:has-text('{label}'), input[value='{label}']", timeout=3000)
-            settle(popup)
-            return
+            settle(popup, 2000)
+            uploaded = True
+            break
         except Exception:
             continue
 
-    raise RuntimeError("파일 올리기 버튼을 찾지 못했습니다")
+    if not uploaded:
+        raise RuntimeError("파일 올리기 버튼을 찾지 못했습니다")
+
+    # 팝업을 강제로 닫으면 부모 화면이 갱신되지 않아 등록이 반영되지 않는다.
+    # 사이트가 준 [닫기]를 눌러야 부모가 개수를 다시 읽는다.
+    for label in ("닫기", "창닫기", "확인"):
+        try:
+            popup.click(f"a:has-text('{label}'), button:has-text('{label}'), input[value='{label}']", timeout=2500)
+            settle(popup, 1200)
+            return
+        except Exception:
+            continue
 
 
 def _main_page(context, fallback):
