@@ -726,6 +726,21 @@ def _upload_in_popup(popup, path: Path, note: str) -> None:
     if not uploaded:
         raise RuntimeError("파일 올리기 버튼을 찾지 못했습니다")
 
+    # 올리기를 누른 뒤 사이트가 처리를 마칠 때까지 기다린다.
+    # 첫 사진이 등록되지 않던 것은 처리 도중에 팝업을 닫아버렸기 때문이다.
+    # 첨부목록에 파일 이름이 나타나거나 등록 안내가 뜨면 끝난 것으로 본다.
+    marker = path.name
+    for _ in range(30):
+        try:
+            body = popup.inner_text("body", timeout=2000)
+        except Exception:
+            break
+        if marker in body or "등록되었습니다" in body or "저장되었습니다" in body:
+            break
+        popup.wait_for_timeout(500)
+    else:
+        log(f"      {marker} 등록 확인이 없어 그대로 진행합니다")
+
     # 팝업을 강제로 닫으면 부모 화면이 갱신되지 않아 등록이 반영되지 않는다.
     # 사이트가 준 [닫기]를 눌러야 부모가 개수를 다시 읽는다.
     for label in ("닫기", "창닫기", "확인"):

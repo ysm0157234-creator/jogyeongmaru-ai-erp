@@ -30,7 +30,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v43-annual-flower"
+BUILD_VERSION = "v44-upload-wait"
 
 
 def _norm(value: Any) -> str:

@@ -27,16 +27,29 @@ class ReportPayload:
         return [name for name, value in self.fields.items() if not str(value).strip()]
 
 
-# ZIP 안의 파일 이름 앞부분 → 첨부 항목 이름
-_ATTACHMENT_PREFIXES = {
-    "01_": "신고서",
-    "02_": "검역합격증명서",
-    "03_": "인보이스",
-    "04_": "품종사진_전체",
-    "05_": "품종사진_근접",
-    "07_": "종자업등록증",
-    "08_": "시료제출확약서",
-}
+# ZIP 안의 파일을 이름으로 알아본다.
+# 앞자리 번호로 구분하려 했더니 인보이스가 '06_..._invoice_원본유지.pdf'로 나오고
+# 처리요약도 '06_'으로 시작해서 겹쳤다. 번호는 상황에 따라 달라지므로 쓰지 않는다.
+_ATTACHMENT_RULES = (
+    ("품종사진_전체", ("전체사진",), ()),
+    ("품종사진_근접", ("근접사진", "근접샷"), ()),
+    ("신고서", ("신고서",), ("요약",)),
+    ("검역합격증명서", ("phyto", "검역", "식검", "합격증"), ()),
+    ("인보이스", ("invoice", "인보이스"), ("요약",)),
+    ("종자업등록증", ("종자업",), ()),
+    ("시료제출확약서", ("확약서",), ()),
+)
+
+
+def classify(file_name: str) -> str:
+    """파일 이름을 보고 어느 첨부 항목인지 정한다."""
+    name = file_name.lower()
+    for label, words, blocked in _ATTACHMENT_RULES:
+        if any(word.lower() in name for word in words) and not any(
+            bad.lower() in name for bad in blocked
+        ):
+            return label
+    return ""
 
 
 def load_payload(zip_path: str | Path, extract_to: str | Path | None = None) -> ReportPayload:
@@ -66,11 +79,9 @@ def load_payload(zip_path: str | Path, extract_to: str | Path | None = None) -> 
 
     attachments: dict[str, Path] = {}
     for name in names:
-        base = Path(name).name
-        for prefix, label in _ATTACHMENT_PREFIXES.items():
-            if base.startswith(prefix):
-                attachments[label] = target / name
-                break
+        label = classify(Path(name).name)
+        if label and label not in attachments:
+            attachments[label] = target / name
 
     return ReportPayload(
         fields=dict(fields),
