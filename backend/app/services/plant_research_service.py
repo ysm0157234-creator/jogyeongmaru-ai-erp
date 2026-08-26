@@ -30,7 +30,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v33-google-images"
+BUILD_VERSION = "v34-attachments"
 
 
 def _norm(value: Any) -> str:

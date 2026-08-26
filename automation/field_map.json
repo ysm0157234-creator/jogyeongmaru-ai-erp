@@ -57,10 +57,6 @@
       "kind": "radio",
       "note": "동의"
     },
-    "품종_한글명": {
-      "selector": "#var_nm_kor",
-      "field": "품종_한글명"
-    },
     "작물_세부학명": {
       "selector": "#tech_nm_sub",
       "field": "작물_학명_전체",
@@ -80,26 +76,29 @@
     },
     "검역합격증명서": {
       "source": "검역합격증명서",
-      "opener": "tr:has(th:has-text('검역관련 서류')) a:has-text('파일첨부')",
+      "opener": "tr:has(th:has-text('검역관련')) a:has-text('파일첨부')",
       "note": "수입식물 검역합격증명서"
     },
     "인보이스": {
       "source": "인보이스",
-      "opener": "tr:has(th:has-text('기타첨부서류')) a:has-text('파일첨부')",
+      "opener": "tr:has(th:has-text('기타첨부')) a:has-text('파일첨부')",
       "note": "인보이스"
     },
     "육성과정_설명": {
       "source": "신고서",
-      "opener": "tr:has(th:has-text('육성과정의 설명')) a:has-text('파일첨부')",
+      "opener": "tr:has(th:has-text('육성과정')) a:has-text('파일첨부')",
       "note": "육성과정의 설명"
+    },
+    "종자업등록증": {
+      "source": "종자업등록증",
+      "opener": "tr:has(th:has-text('종자업등록번호')) a:has-text('파일첨부')",
+      "note": "종자업등록증 사본"
     }
   },
   "manual": [
     "제출 — [종자원 접수요청] 버튼은 확인 후 직접 누른다"
   ],
-  "manual_attachments": [
-    "종자업등록증 — 등록증 원본 파일이 ERP ZIP에 없음"
-  ],
+  "manual_attachments": [],
   "actions_after_fill": [],
   "save_draft": {
     "name": "임시저장",

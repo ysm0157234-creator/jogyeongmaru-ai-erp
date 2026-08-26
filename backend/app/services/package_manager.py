@@ -4,6 +4,7 @@ import io
 import json
 import re
 import zipfile
+from pathlib import Path
 from datetime import datetime, timezone
 
 from app.services.document_manager import COMPANY, DocumentBundle
@@ -83,6 +84,23 @@ def full_botanical_name(scientific_name: str, cultivar: str) -> str:
     if "'" in base:  # 이미 품종이 붙어 있다
         return base
     return f"{base} '{name.title() if name.islower() else name}'"
+
+
+# 매 신고마다 똑같이 붙는 회사 서류. 파일이 있으면 ZIP에 담고 없으면 건너뛴다.
+COMPANY_DOCUMENTS = {
+    "종자업등록증.pdf": "07_종자업등록증.pdf",
+    "시료제출확약서.pdf": "08_시료제출확약서.pdf",
+}
+
+
+def company_documents() -> dict[str, bytes]:
+    folder = Path(__file__).resolve().parent.parent / "documents"
+    found: dict[str, bytes] = {}
+    for name, zip_name in COMPANY_DOCUMENTS.items():
+        path = folder / name
+        if path.exists():
+            found[zip_name] = path.read_bytes()
+    return found
 
 
 def safe(value: str) -> str:
@@ -193,5 +211,7 @@ def build_package(
         archive.writestr(f"{base}/04_품종전체사진.jpg", overall_image)
         archive.writestr(f"{base}/05_꽃근접사진.jpg", closeup_image)
         archive.writestr(f"{base}/06_처리요약.pdf", documents.summary_pdf)
+        for zip_name, data in company_documents().items():
+            archive.writestr(f"{base}/{zip_name}", data)
         archive.writestr(f"{base}/manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2, default=str))
     return output.getvalue()

@@ -544,40 +544,68 @@ def _upload_in_popup(popup, path: Path, note: str) -> None:
     settle(popup)
 
 
-def attach(context, payload: ReportPayload, field_map: dict) -> tuple[list[str], list[str]]:
+def _main_page(context, fallback):
+    """본문(신고서 작성) 페이지를 다시 잡는다.
+
+    임시저장을 하면 화면이 새로 뜨고, 팝업이 남아 있을 수도 있다.
+    저장 전에 들고 있던 페이지 객체를 그대로 쓰면 엉뚱한 창을 건드리게 된다.
+    """
+    for page in context.pages:
+        try:
+            if not page.is_closed() and "cvwAppMstReg" in page.url:
+                return page
+        except Exception:
+            continue
+    return fallback
+
+
+def attach(context, payload: ReportPayload, field_map: dict, fallback=None) -> tuple[list[str], list[str]]:
     """임시저장 이후 열리는 [파일첨부] 팝업에 파일을 올린다."""
     attached: list[str] = []
     remaining: list[str] = []
 
-    page = context.pages[0]
-    mapping = field_map.get("attachments", {})
+    page = _main_page(context, fallback or context.pages[0])
+    log(f"   - 첨부 대상 화면: {page.url[:90]}")
 
-    for label, entry in mapping.items():
+    for label, entry in field_map.get("attachments", {}).items():
         source = entry.get("source", label)
         path = payload.attachments.get(source)
         if not path or not Path(path).exists():
             remaining.append(f"{label}: ZIP에 {source} 파일이 없음")
             continue
 
+        opener = entry["opener"]
+        try:
+            count = page.locator(opener).count()
+        except Exception:
+            count = -1
+        log(f"      {label} 여는 버튼 '{opener}' → {count}개")
+        if count <= 0:
+            remaining.append(f"{label}: [파일첨부] 버튼을 찾지 못했습니다 — 직접 올려야 함")
+            continue
+
         popup = None
         try:
-            popup = _open_popup(context, page, entry["opener"])
+            popup = _open_popup(context, page, opener, timeout=20000)
             _upload_in_popup(popup, Path(path), entry.get("note", ""))
             attached.append(f"{label} = {Path(path).name}")
+            log(f"      {label} 첨부 완료")
         except Exception as exc:
-            remaining.append(f"{label}: {type(exc).__name__} {str(exc)[:70]} — 직접 올려야 함")
+            _shot(page, f"attach_{label}")
+            remaining.append(f"{label}: {type(exc).__name__} — 직접 올려야 함")
+            log(f"      {label} 첨부 실패: {type(exc).__name__} {str(exc)[:90]}")
         finally:
-            if popup and not popup.is_closed():
-                try:
+            try:
+                if popup and not popup.is_closed():
                     popup.close()
-                except Exception:
-                    pass
+            except Exception:
+                pass
+            settle(page, 800)
 
     for name in field_map.get("manual_attachments", []):
         remaining.append(f"{name}: 직접 처리")
 
     return attached, remaining
-
 
 
 def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
@@ -697,7 +725,7 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
 
     if saved:
         log("   - 첨부 시작")
-        attached, remaining = attach(context, payload, field_map)
+        attached, remaining = attach(context, payload, field_map, page)
         log(f"     첨부 {len(attached)}건 / 직접처리 {len(remaining)}건")
         done.extend(attached)
         todo.extend(remaining)
