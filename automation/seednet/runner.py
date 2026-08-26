@@ -132,12 +132,25 @@ def fill(page: Page, payload: ReportPayload, field_map: dict) -> tuple[list[str]
         except Exception as exc:
             todo.append(f"{name}: {type(exc).__name__} {exc}")
 
-    # 목록에서 고르기만 하면 되는 항목(종자업 등록번호 등)
-    for item in field_map.get("list_selects", []):
+    list_done, list_todo = select_lists(scope_page, payload, field_map.get("list_selects", []))
+    done.extend(list_done)
+    todo.extend(list_todo)
+
+    for name in field_map.get("manual", []):
+        todo.append(f"{name}: 자동화 대상 아님 — 직접 처리")
+
+    return done, todo
+
+
+def select_lists(page: Page, payload: ReportPayload, items: list[dict]) -> tuple[list[str], list[str]]:
+    """목록에서 고르기만 하면 되는 항목(종자업 등록번호 등)."""
+    done: list[str] = []
+    todo: list[str] = []
+    for item in items:
         selector = item["selector"]
         wanted = str(payload.fields.get(item.get("field", ""), "")).strip()
         try:
-            options = scope_page.eval_on_selector(
+            options = page.eval_on_selector(
                 selector, "el => [...el.options].map(o => o.text.trim())"
             )
         except Exception:
@@ -153,13 +166,10 @@ def fill(page: Page, payload: ReportPayload, field_map: dict) -> tuple[list[str]
             todo.append(f"{item['name']}: 목록에서 '{wanted}'를 찾지 못했습니다 (있는 것: {options[:3]}) — 직접 고르세요")
             continue
         try:
-            scope_page.select_option(selector, label=match, timeout=4000)
+            page.select_option(selector, label=match, timeout=4000)
             done.append(f"{item['name']} = {match}")
         except Exception as exc:
             todo.append(f"{item['name']}: {type(exc).__name__} — 직접 고르세요")
-
-    for name in field_map.get("manual", []):
-        todo.append(f"{name}: 자동화 대상 아님 — 직접 처리")
 
     return done, todo
 
@@ -587,6 +597,21 @@ def _upload_in_popup(popup, path: Path, note: str) -> None:
     raise RuntimeError("파일 올리기 버튼을 찾지 못했습니다")
 
 
+def _main_page(context, fallback):
+    """본문(신고서 작성) 페이지를 다시 잡는다.
+
+    임시저장을 하면 화면이 새로 뜨고 팝업이 남아 있을 수도 있다.
+    저장 전에 들고 있던 페이지 객체를 그대로 쓰면 엉뚱한 창을 건드리게 된다.
+    """
+    for page in context.pages:
+        try:
+            if not page.is_closed() and "cvwAppMstReg" in page.url:
+                return page
+        except Exception:
+            continue
+    return fallback
+
+
 def attach(context, payload: ReportPayload, field_map: dict, fallback=None) -> tuple[list[str], list[str]]:
     """임시저장 이후 열리는 [파일첨부] 팝업에 파일을 올린다."""
     attached: list[str] = []
@@ -752,6 +777,17 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
                 saved = True
 
     if saved:
+        # 종자업 등록번호 목록은 저장 뒤에 채워지는 경우가 있어 여기서 다시 시도한다.
+        retry = [i for i in field_map.get("list_selects", []) if any(
+            i["name"] in line for line in todo
+        )]
+        if retry:
+            page = _main_page(context, page)
+            again_done, again_todo = select_lists(page, payload, retry)
+            done.extend(again_done)
+            todo = [line for line in todo if not any(i["name"] in line for i in retry)]
+            todo.extend(again_todo)
+
         log("   - 첨부 시작")
         attached, remaining = attach(context, payload, field_map, page)
         log(f"     첨부 {len(attached)}건 / 직접처리 {len(remaining)}건")

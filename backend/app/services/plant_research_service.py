@@ -30,7 +30,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v36-field-rules"
+BUILD_VERSION = "v37-attach-fix"
 
 
 def _norm(value: Any) -> str:
