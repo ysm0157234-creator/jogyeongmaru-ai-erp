@@ -128,16 +128,41 @@
       "품종육성경과 요약": {
         "selector": "#fndg_grth",
         "field": "육성과정_설명"
+      },
+      "대조품종": {
+        "selector": "#fndg_with",
+        "field": "대조품종"
+      },
+      "대조품종과 구별되는 특성": {
+        "selector": "#fndg_dstct",
+        "field": "구별되는_특성"
+      },
+      "균일성·안정성": {
+        "selector": "#fndg_stbl",
+        "field": "균일성_안정성"
       }
     },
     "submit": "a:has-text('입력완료')",
-    "manual": [
-      "GMO 여부 / GMO 검정 여부 — 신고인이 사실로 선언하는 항목",
-      "균일성·안정성 여부, 작기(춘작/하작/추작/동작)",
-      "대조품종, 대조품종과 구별되는 특성, 균일성·안정성 기술"
-    ],
     "requires_field": "품종_한글명",
-    "requires_selector": "#var_nm_kor"
+    "requires_selector": "#var_nm_kor",
+    "choices": [
+      {
+        "name": "GMO 여부 → 아니오",
+        "selector": "#acc20"
+      },
+      {
+        "name": "GMO 검정 여부 → 아니오",
+        "selector": "#acc40"
+      },
+      {
+        "name": "균일성·안정성 → 예",
+        "selector": "#acc50"
+      },
+      {
+        "name": "작기 → 춘작",
+        "selector": "#acc71"
+      }
+    ]
   },
   "variety_check": {
     "opener": "tr:has(#var_nm_kor) a:has-text('중복확인')",

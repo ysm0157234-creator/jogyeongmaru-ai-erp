@@ -324,6 +324,14 @@ def fill_char_sheet(context, page: Page, payload: ReportPayload, entry: dict, *,
                 except Exception as exc:
                     todo.append(f"특성기술서 {name}: {type(exc).__name__}")
 
+        # 신고인이 선언하는 항목. 요청에 따라 기본값을 넣되, 제출 전 확인이 필요하다.
+        for choice in entry.get("choices", []):
+            try:
+                popup.check(choice["selector"], timeout=3000)
+                done.append(f"특성기술서 {choice['name']}")
+            except Exception:
+                todo.append(f"특성기술서 {choice['name']}: 선택 실패 — 직접 고르세요")
+
         for name in entry.get("manual", []):
             todo.append(f"특성기술서 {name}: 신고인이 판단할 항목 — 직접 선택")
 

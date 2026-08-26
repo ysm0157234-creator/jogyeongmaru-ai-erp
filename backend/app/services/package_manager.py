@@ -179,6 +179,19 @@ def build_manifest(variety_name: str, draft_data: dict, assets: DriveAssets, doc
             or "",
             "품종_특성설명": str(draft_data.get("characteristics_draft") or ""),
             "육성과정_설명": str(draft_data.get("breeding_process_draft") or ""),
+            # 품종특성기술서의 서술 항목. 조사 결과에서 만들어 넣고, 초안 화면에서 고칠 수 있다.
+            # 대조품종은 보통 같은 종의 일반 품종과 견준다.
+            "대조품종": str(draft_data.get("reference_variety") or "")
+            or (
+                f"{korean_only(draft_data.get('korean_name')) or suggest_crop_korean(draft_data.get('scientific_name', ''))} 일반 품종"
+            ).strip(),
+            "구별되는_특성": str(draft_data.get("distinct_traits") or "")
+            or str(draft_data.get("characteristics_draft") or ""),
+            "균일성_안정성": str(draft_data.get("stability_note") or "")
+            or (
+                "영양번식으로 증식하여 모주의 특성이 그대로 유지되며, "
+                "재배 세대를 거듭하여도 품종 고유의 특성이 균일하게 발현된다."
+            ),
         },
     }
 
