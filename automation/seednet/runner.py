@@ -359,25 +359,40 @@ def fill_char_sheet(context, page: Page, payload: ReportPayload, entry: dict, *,
         return done, [f"특성기술서 팝업이 열리지 않았습니다: {type(exc).__name__} — 직접 작성하세요"]
     try:
         for name, item in entry.get("fields", {}).items():
+            selector = item["selector"]
             value = str(payload.fields.get(item["field"], "")).strip()
+            source = "ZIP"
             if not value:
                 value = str(item.get("default", "")).strip()
+                source = "기본문구"
             if not value:
+                log(f"      특성기술서 {name}: 넣을 값이 없음")
                 todo.append(f"특성기술서 {name}: 값이 비어 있음")
                 continue
+
             try:
-                popup.fill(item["selector"], value)
-                done.append(f"특성기술서 {name}")
+                found = popup.locator(selector).count()
             except Exception:
+                found = -1
+
+            try:
+                popup.fill(selector, value, timeout=4000)
+                after = popup.input_value(selector, timeout=2000)
+                log(f"      특성기술서 {name} ← {source} ({len(value)}자) / 칸 {found}개 / 실제 {len(after)}자")
+                done.append(f"특성기술서 {name}")
+            except Exception as exc:
                 # 화면에 숨겨진 칸은 직접 값을 넣는다.
                 try:
                     popup.evaluate(
-                        "([sel, val]) => { const el = document.querySelector(sel); el.value = val; }",
-                        [item["selector"], value],
+                        "([sel, val]) => { const el = document.querySelector(sel);"
+                        " el.removeAttribute('readonly'); el.disabled = false; el.value = val; }",
+                        [selector, value],
                     )
+                    log(f"      특성기술서 {name} ← {source} (직접 대입, fill 불가: {type(exc).__name__})")
                     done.append(f"특성기술서 {name} (숨김칸)")
-                except Exception as exc:
-                    todo.append(f"특성기술서 {name}: {type(exc).__name__}")
+                except Exception as exc2:
+                    log(f"      특성기술서 {name} 실패: {type(exc2).__name__} / 칸 {found}개")
+                    todo.append(f"특성기술서 {name}: {type(exc2).__name__}")
 
         # 신고인이 선언하는 항목. 요청에 따라 기본값을 넣되, 제출 전 확인이 필요하다.
         for choice in entry.get("choices", []):
@@ -399,7 +414,8 @@ def fill_char_sheet(context, page: Page, payload: ReportPayload, entry: dict, *,
                 choice = "a"
             if choice == "a":
                 popup.click(entry["submit"])
-                popup.wait_for_timeout(1500)
+                settle(popup)
+                log("      특성기술서 입력완료 눌렀음")
                 done.append("특성기술서 입력완료")
             else:
                 input("  팝업 처리를 마친 뒤 Enter > ")
@@ -580,6 +596,7 @@ def _open_popup(context, page: Page, opener: str, timeout: int = 15000):
     with context.expect_page(timeout=timeout) as info:
         page.click(opener)
     popup = info.value
+    watch_dialogs(popup)
     popup.wait_for_load_state("domcontentloaded")
     if popup in before:
         raise RuntimeError("새 창이 열리지 않았습니다.")
