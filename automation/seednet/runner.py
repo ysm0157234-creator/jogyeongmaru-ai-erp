@@ -470,6 +470,9 @@ def click_actions(page: Page, actions: list[dict], payload: ReportPayload) -> tu
     return done, failed
 
 
+_DIALOG_WATCHED: set[int] = set()
+
+
 def watch_dialogs(page: Page) -> list[str]:
     """사이트가 띄우는 경고창 문구를 모아둔다.
 
@@ -477,6 +480,9 @@ def watch_dialogs(page: Page) -> list[str]:
     안내가 떠서 팝업이 안 열려도 겉으로는 그냥 시간만 지나간 것처럼 보였다.
     """
     messages: list[str] = []
+    if id(page) in _DIALOG_WATCHED:
+        return messages
+    _DIALOG_WATCHED.add(id(page))
 
     def on_dialog(dialog):
         messages.append(dialog.message.strip())
@@ -585,8 +591,16 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
     log(f"=== 신고 자동입력 시작: {payload.variety} ===")
     playwright, browser, context, page = open_session()
     watch_dialogs(page)
+
+    # 브라우저를 재사용하므로 이전 실행의 작성 화면이 열려 있을 수 있다.
+    # 목록으로 돌아가서 새 신고서를 연다.
+    for extra in list(context.pages)[1:]:
+        try:
+            extra.close()
+        except Exception:
+            pass
     page.goto(config.REPORT_LIST_URL, wait_until="domcontentloaded")
-    page.wait_for_timeout(1000)
+    settle(page, 1000)
 
     try:
         page.click("a:has-text('신고서작성하기')", timeout=10000)

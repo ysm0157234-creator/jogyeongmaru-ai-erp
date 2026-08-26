@@ -226,7 +226,20 @@ function AIResult({ draft, setDraft, setError, onFormChange }) {
       <Card editing={editing} label="번식방법" value={form.propagation_method || ""} onChange={v=>change(["propagation_method"],v)}/>
       <Card editing={editing} label="주요 용도" value={form.classification?.use || ""} onChange={v=>change(["classification","use"],v)}/>
     </section>
-    <section className="panel"><h2>AI 작성 초안</h2><div className="draft-text-grid"><article><h3>품종의 특성 설명</h3><textarea rows="7" disabled={!editing} value={form.characteristics_draft} onChange={e=>change(["characteristics_draft"],e.target.value)}/></article><article><h3>품종의 육성과정</h3><textarea rows="7" disabled={!editing} value={form.breeding_process_draft} onChange={e=>change(["breeding_process_draft"],e.target.value)}/></article></div></section>
+    <section className="panel">
+      <h2>AI 작성 초안</h2>
+      <p className="muted">여기서 바로 고치면 신고서와 국립종자원 신고 화면에 그대로 들어갑니다. 따로 저장하지 않아도 됩니다.</p>
+      <div className="draft-text-grid">
+        <article>
+          <h3>품종의 특성 설명</h3>
+          <textarea rows="9" value={form.characteristics_draft || ""} onChange={e=>change(["characteristics_draft"],e.target.value)}/>
+        </article>
+        <article>
+          <h3>품종의 육성과정</h3>
+          <textarea rows="9" value={form.breeding_process_draft || ""} onChange={e=>change(["breeding_process_draft"],e.target.value)}/>
+        </article>
+      </div>
+    </section>
     <Photo role="overall" title="사진 1 · 품종 전체 모습" description="식물 또는 꽃대 전체 형태가 보이는 사진" images={overall} selected={form.selected_images?.overall} onSelect={id=>select("overall",id)} onUploaded={item=>setForm(c=>({...c,image_candidates:[...(c.image_candidates||[]),item],selected_images:{...(c.selected_images||{}),overall:item.id}}))}/>
     <Photo role="closeup" title="사진 2 · 꽃 근접 모습" description="꽃·잎의 색상과 형태가 잘 보이는 근접 사진" images={closeup} selected={form.selected_images?.closeup} onSelect={id=>select("closeup",id)} onUploaded={item=>setForm(c=>({...c,image_candidates:[...(c.image_candidates||[]),item],selected_images:{...(c.selected_images||{}),closeup:item.id}}))}/>
     <SupportingUploads form={form} setForm={setForm} setError={setError}/>
