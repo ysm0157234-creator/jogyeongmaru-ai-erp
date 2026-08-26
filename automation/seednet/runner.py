@@ -150,9 +150,67 @@ def fill(page: Page, payload: ReportPayload, field_map: dict) -> tuple[list[str]
     done.extend(list_done)
     todo.extend(list_todo)
 
+    radio_done, radio_todo = pick_radios_by_text(scope_page, field_map.get("text_radios", []))
+    done.extend(radio_done)
+    todo.extend(radio_todo)
+
     for name in field_map.get("manual", []):
         todo.append(f"{name}: 자동화 대상 아님 — 직접 처리")
 
+    return done, todo
+
+
+_PICK_RADIO = """
+([near, choose]) => {
+  const label = (el) => {
+    if (el.id) {
+      const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      if (l) return l.innerText.trim();
+    }
+    const wrap = el.closest('label');
+    if (wrap) return wrap.innerText.trim();
+    // 라디오 바로 뒤에 붙은 글자를 본다.
+    let node = el.nextSibling, text = '';
+    while (node && text.length < 12) {
+      text += (node.textContent || '').trim();
+      node = node.nextSibling;
+    }
+    return text.trim();
+  };
+
+  for (const radio of document.querySelectorAll('input[type=radio]')) {
+    const cell = radio.closest('td') || radio.closest('tr');
+    if (!cell || !cell.innerText.includes(near)) continue;
+    if (!label(radio).startsWith(choose)) continue;
+    radio.click();
+    radio.checked = true;
+    radio.dispatchEvent(new Event('change', {bubbles: true}));
+    return radio.id || radio.name || 'ok';
+  }
+  return '';
+}
+"""
+
+
+def pick_radios_by_text(page: Page, items: list[dict]) -> tuple[list[str], list[str]]:
+    """주변 글자를 보고 라디오를 고른다.
+
+    작물분류를 고른 뒤에야 나타나는 항목이 있어(화훼류의 1년생 유/무) 미리 화면 구조를
+    알 수 없다. 선택자를 박아두는 대신 옆 글자로 찾는다.
+    """
+    done: list[str] = []
+    todo: list[str] = []
+    for item in items:
+        try:
+            found = page.evaluate(_PICK_RADIO, [item["near"], item["choose"]])
+        except Exception as exc:
+            found = ""
+            log(f"      {item['name']} 선택 실패: {type(exc).__name__}")
+        if found:
+            log(f"      {item['name']} 선택함 ({found})")
+            done.append(item["name"])
+        else:
+            todo.append(f"{item['name']}: 해당 항목이 화면에 없거나 찾지 못했습니다 — 직접 고르세요")
     return done, todo
 
 

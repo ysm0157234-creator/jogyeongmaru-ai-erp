@@ -30,7 +30,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v42-popup-close"
+BUILD_VERSION = "v43-annual-flower"
 
 
 def _norm(value: Any) -> str:

@@ -179,5 +179,12 @@
   "refill_after_check": [
     "품종_영문명",
     "작물_세부학명"
+  ],
+  "text_radios": [
+    {
+      "name": "1년생 화훼류 유/무 → 무",
+      "near": "1년생",
+      "choose": "무"
+    }
   ]
 }
