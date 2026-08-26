@@ -160,8 +160,24 @@ def select_lists(page: Page, payload: ReportPayload, items: list[dict]) -> tuple
         # 등록번호는 '제10-평택-2023-30-01호'처럼 앞뒤 글자가 붙어 있어 부분 일치로 찾는다.
         core = wanted.strip("제호 ")
         match = next((o for o in options if core and core in o), None) or (
-            options[0] if len(options) == 1 else None
+            options[0] if len(options) == 1 and options[0].strip() else None
         )
+
+        # 목록이 비어 있으면 번호를 직접 넣고 [추가]를 눌러 목록에 올린다.
+        if not match and item.get("input_selector") and core:
+            try:
+                page.fill(item["input_selector"], core, timeout=3000)
+                page.click(item.get("add_button", "a:has-text('추가')"), timeout=4000)
+                page.wait_for_timeout(1500)
+                options = page.eval_on_selector(
+                    selector, "el => [...el.options].map(o => o.text.trim())"
+                )
+                match = next((o for o in options if core in o), None)
+                if match:
+                    log(f"      {item['name']} 목록에 추가함")
+            except Exception as exc:
+                log(f"      {item['name']} 추가 실패: {type(exc).__name__}")
+
         if not match:
             todo.append(f"{item['name']}: 목록에서 '{wanted}'를 찾지 못했습니다 (있는 것: {options[:3]}) — 직접 고르세요")
             continue
@@ -655,7 +671,13 @@ def attach(context, payload: ReportPayload, field_map: dict, fallback=None) -> t
                     popup.close()
             except Exception:
                 pass
-            settle(page, 800)
+            # 첨부가 하나 끝나면 본문을 새로 읽어야 다음 팝업이 갱신된 상태로 열린다.
+            # 이걸 안 하면 두 번째 사진이 올라간 것처럼 보이고 실제로는 등록되지 않는다.
+            try:
+                page.reload(wait_until="domcontentloaded")
+                settle(page, 1200)
+            except Exception:
+                settle(page, 800)
 
     for name in field_map.get("manual_attachments", []):
         remaining.append(f"{name}: 직접 처리")

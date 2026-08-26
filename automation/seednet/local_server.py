@@ -13,6 +13,7 @@ ERP 웹앱(Render)에서 신고 자동입력 버튼을 누르면 여기로 ZIP�
 from __future__ import annotations
 
 import json
+import queue
 import re
 import time
 import threading
@@ -26,8 +27,15 @@ from seednet.runner import run
 HOST = "127.0.0.1"
 PORT = 8765
 
-# 한 번에 하나만 돌린다. 브라우저를 공유하기 때문이다.
+# Playwright 객체는 만든 스레드에서만 쓸 수 있다. 요청마다 새 스레드를 만들면
+# 브라우저를 재사용할 수 없으므로, 전용 작업 스레드 하나가 모든 실행을 맡는다.
+_queue: "queue.Queue[tuple]" = queue.Queue()
 _lock = threading.Lock()
+
+# 실행은 오래 걸린다(팝업 여닫기·파일 첨부). 요청을 붙잡고 있으면 브라우저가
+# 먼저 포기해서 BrokenPipe가 나고, 웹앱에는 실패로 보인다. 그래서 바로 응답하고
+# 진행 상황은 따로 조회하게 한다.
+_job: dict = {"state": "idle", "message": "", "result": None}
 
 
 def parse_uploaded_file(content_type: str, body: bytes) -> bytes | None:
@@ -69,6 +77,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         if self.path.startswith("/health"):
             self._send(200, {"ok": True, "busy": _lock.locked()})
+        elif self.path.startswith("/status"):
+            self._send(200, _job)
         else:
             self._send(404, {"error": "없는 주소입니다."})
 
@@ -99,39 +109,57 @@ class Handler(BaseHTTPRequestHandler):
         temp.write_bytes(data)
         print(f"\n[요청] {len(data):,} bytes 받음 — 보관: {folder}")
 
-        with _lock:
-            try:
-                result = run(temp, interactive=False)
-            except Exception as exc:
-                detail = traceback.format_exc()
-                print(detail, flush=True)
-                try:
-                    (config.AUTOMATION_DIR / "last_run.log").open("a", encoding="utf-8").write(
-                        "\n\n=== 실행 중 오류 ===\n" + detail
-                    )
-                except Exception:
-                    pass
-                self._send(500, {"error": f"{type(exc).__name__}: {exc}"})
-                return
+        if not _lock.acquire(blocking=False):
+            self._send(409, {"error": "이미 신고 자동입력이 실행 중입니다."})
+            return
 
-        # 품종명을 알게 됐으니 폴더 이름에 붙여 나중에 찾기 쉽게 한다.
-        variety = re.sub(r'[\\/:*?"<>|]+', "_", str(result.get("variety") or "")).strip()
-        if variety:
-            renamed = config.ARCHIVE_DIR / f"{stamp}_{variety}"
-            try:
-                folder.rename(renamed)
-                result["saved_to"] = str(renamed)
-            except Exception:
-                result["saved_to"] = str(folder)
-        else:
-            result["saved_to"] = str(folder)
-
-        print(f"[완료] 자동 {len(result['done'])}건 / 직접 {len(result['todo'])}건")
-        print(f"       자료 보관: {result['saved_to']}")
-        self._send(200, result)
+        globals()["_job"] = {
+            "state": "running",
+            "message": "국립종자원 화면을 채우는 중입니다.",
+            "result": None,
+        }
+        _queue.put((temp, folder, stamp))
+        self._send(202, {"state": "running", "message": "자동 입력을 시작했습니다."})
 
     def log_message(self, *args) -> None:
         return  # 접속 로그는 찍지 않는다.
+
+
+def worker() -> None:
+    """전용 작업 스레드. 브라우저를 계속 들고 있으면서 요청을 하나씩 처리한다."""
+    global _job
+    while True:
+        temp, folder, stamp = _queue.get()
+        try:
+            result = run(temp, interactive=False)
+
+            variety = re.sub(r'[\\/:*?"<>|]+', "_", str(result.get("variety") or "")).strip()
+            folder_final = folder
+            if variety:
+                try:
+                    renamed = config.ARCHIVE_DIR / f"{stamp}_{variety}"
+                    folder.rename(renamed)
+                    folder_final = renamed
+                except Exception:
+                    pass
+            result["saved_to"] = str(folder_final)
+
+            print(f"[완료] 자동 {len(result['done'])}건 / 직접 {len(result['todo'])}건")
+            print(f"       자료 보관: {result['saved_to']}")
+            _job = {"state": "done", "message": "완료", "result": result}
+        except Exception as exc:
+            detail = traceback.format_exc()
+            print(detail, flush=True)
+            try:
+                (config.AUTOMATION_DIR / "last_run.log").open("a", encoding="utf-8").write(
+                    "\n\n=== 실행 중 오류 ===\n" + detail
+                )
+            except Exception:
+                pass
+            _job = {"state": "failed", "message": f"{type(exc).__name__}: {exc}", "result": None}
+        finally:
+            _lock.release()
+            _queue.task_done()
 
 
 class ReusableServer(HTTPServer):
@@ -140,6 +168,8 @@ class ReusableServer(HTTPServer):
 
 
 def main() -> None:
+    threading.Thread(target=worker, daemon=True).start()
+
     try:
         server = ReusableServer((HOST, PORT), Handler)
     except OSError as exc:

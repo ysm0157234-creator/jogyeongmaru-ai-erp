@@ -166,7 +166,9 @@
     {
       "name": "종자업 등록번호",
       "selector": "#bsnsList",
-      "field": "종자업_등록번호"
+      "field": "종자업_등록번호",
+      "input_selector": "#seed_bsns_no",
+      "add_button": "tr:has(#seed_bsns_no) a:has-text('추가')"
     }
   ],
   "refill_after_check": [

@@ -115,11 +115,24 @@ export default function AIReportPage() {
       setSeednetStatus("국립종자원 화면을 채우고 있습니다. 맥에 열린 브라우저를 확인하세요.");
       const form = new FormData();
       form.append("file", blob, "package.zip");
-      const run = await fetch(`${HELPER_URL}/run`, { method: "POST", body: form });
-      const result = await run.json();
-      if (!run.ok) throw new Error(result.error || "신고 자동입력에 실패했습니다.");
+      const started = await fetch(`${HELPER_URL}/run`, { method: "POST", body: form });
+      const ack = await started.json();
+      if (!started.ok) throw new Error(ack.error || "신고 자동입력을 시작하지 못했습니다.");
 
-      setSeednetResult(result);
+      // 입력·첨부는 몇 분 걸린다. 요청을 붙잡고 기다리면 브라우저가 먼저 끊어버리므로
+      // 진행 상황을 물어보며 기다린다.
+      const deadline = Date.now() + 15 * 60 * 1000;
+      let job = null;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 3000));
+        const res = await fetch(`${HELPER_URL}/status`);
+        job = await res.json();
+        if (job.state === "done" || job.state === "failed") break;
+      }
+      if (!job || job.state === "running") throw new Error("자동 입력이 15분을 넘겨 기다리기를 멈췄습니다. 맥에 열린 브라우저를 확인하세요.");
+      if (job.state === "failed") throw new Error(job.message || "신고 자동입력에 실패했습니다.");
+
+      setSeednetResult(job.result);
       setSeednetStatus("완료: 열린 브라우저에서 확인 후 [종자원 접수요청]을 눌러 주세요.");
     } catch (err) {
       setError(err.message); setSeednetStatus(`실패: ${err.message}`);
