@@ -88,6 +88,7 @@ def _resolve(entry: dict, payload: ReportPayload) -> str:
 
 
 def fill(page: Page, payload: ReportPayload, field_map: dict) -> tuple[list[str], list[str]]:
+    scope_page = page
     done: list[str] = []
     todo: list[str] = []
 
@@ -130,6 +131,32 @@ def fill(page: Page, payload: ReportPayload, field_map: dict) -> tuple[list[str]
             done.append(f"{name} = {value[:44]}")
         except Exception as exc:
             todo.append(f"{name}: {type(exc).__name__} {exc}")
+
+    # 목록에서 고르기만 하면 되는 항목(종자업 등록번호 등)
+    for item in field_map.get("list_selects", []):
+        selector = item["selector"]
+        wanted = str(payload.fields.get(item.get("field", ""), "")).strip()
+        try:
+            options = scope_page.eval_on_selector(
+                selector, "el => [...el.options].map(o => o.text.trim())"
+            )
+        except Exception:
+            todo.append(f"{item['name']}: 목록을 찾지 못했습니다 — 직접 고르세요")
+            continue
+
+        # 등록번호는 '제10-평택-2023-30-01호'처럼 앞뒤 글자가 붙어 있어 부분 일치로 찾는다.
+        core = wanted.strip("제호 ")
+        match = next((o for o in options if core and core in o), None) or (
+            options[0] if len(options) == 1 else None
+        )
+        if not match:
+            todo.append(f"{item['name']}: 목록에서 '{wanted}'를 찾지 못했습니다 (있는 것: {options[:3]}) — 직접 고르세요")
+            continue
+        try:
+            scope_page.select_option(selector, label=match, timeout=4000)
+            done.append(f"{item['name']} = {match}")
+        except Exception as exc:
+            todo.append(f"{item['name']}: {type(exc).__name__} — 직접 고르세요")
 
     for name in field_map.get("manual", []):
         todo.append(f"{name}: 자동화 대상 아님 — 직접 처리")
@@ -532,39 +559,32 @@ def _open_popup(context, page: Page, opener: str, timeout: int = 15000):
 
 
 def _upload_in_popup(popup, path: Path, note: str) -> None:
-    """팝업 안에서 파일을 고르고 첨부 버튼을 누른다.
+    """팝업 안에서 파일을 고르고 올리기 버튼까지 누른다.
 
-    첨부 팝업은 종류가 달라도 구조가 같다(파일칸 + 설명칸 + '파일 첨부하기').
-    그래서 선택자를 종류별로 적지 않고 공통 규칙으로 찾는다.
+    첨부 팝업은 종류가 달라도 구조가 같다(파일칸 + 설명칸 + 올리기 버튼).
+    설명칸은 비워도 되는 경우가 많아 note가 빈 문자열이면 건드리지 않는다.
     """
     popup.wait_for_selector("input[type=file]", timeout=10000)
     popup.set_input_files("input[type=file]", str(path))
 
     if note:
-        for selector in ("#pic_rmrk", "input[name$=_rmrk]"):
+        for selector in ("#pic_rmrk", "input[name$=_rmrk]", "input[name*=rmrk]"):
             try:
-                popup.fill(selector, note)
+                popup.fill(selector, note, timeout=2000)
                 break
             except Exception:
                 continue
 
-    popup.click("a:has-text('파일 첨부하기')")
-    settle(popup)
-
-
-def _main_page(context, fallback):
-    """본문(신고서 작성) 페이지를 다시 잡는다.
-
-    임시저장을 하면 화면이 새로 뜨고, 팝업이 남아 있을 수도 있다.
-    저장 전에 들고 있던 페이지 객체를 그대로 쓰면 엉뚱한 창을 건드리게 된다.
-    """
-    for page in context.pages:
+    # 버튼 이름이 화면마다 조금씩 다르다.
+    for label in ("파일 첨부하기", "파일 올리기", "첨부하기", "올리기", "등록"):
         try:
-            if not page.is_closed() and "cvwAppMstReg" in page.url:
-                return page
+            popup.click(f"a:has-text('{label}'), button:has-text('{label}'), input[value='{label}']", timeout=3000)
+            settle(popup)
+            return
         except Exception:
             continue
-    return fallback
+
+    raise RuntimeError("파일 올리기 버튼을 찾지 못했습니다")
 
 
 def attach(context, payload: ReportPayload, field_map: dict, fallback=None) -> tuple[list[str], list[str]]:

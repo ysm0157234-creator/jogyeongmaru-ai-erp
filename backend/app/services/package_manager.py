@@ -187,6 +187,12 @@ def build_manifest(variety_name: str, draft_data: dict, assets: DriveAssets, doc
             ).strip(),
             "구별되는_특성": str(draft_data.get("distinct_traits") or "")
             or str(draft_data.get("characteristics_draft") or ""),
+            # 6번 칸(품종구별에 도움이 되는 추가 정보 및 재배상 유의사항)
+            "재배_유의사항": str(draft_data.get("cultivation_note") or "")
+            or (
+                f"재배 적지는 배수가 양호한 토양이며, 적정 일조 조건에서 생육이 안정적이다. "
+                f"번식은 {str(draft_data.get('propagation_method') or '영양번식')}으로 한다."
+            ),
             "균일성_안정성": str(draft_data.get("stability_note") or "")
             or (
                 "영양번식으로 증식하여 모주의 특성이 그대로 유지되며, "
