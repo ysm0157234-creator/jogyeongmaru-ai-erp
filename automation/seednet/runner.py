@@ -80,11 +80,25 @@ def _target(page: Page, mapping: dict):
     raise FieldMapError(f"프레임을 찾지 못했습니다: {frame_url}")
 
 
+# 사이트가 거부하는 문자. 안내문에 예로 든 것들이다.
+#   "사용할수 없는 특수문자가 포함되어있습니다. 예(', ', \", \" ...)"
+# 이 문자가 들어가면 경고창이 뜨고 그 칸이 통째로 비워진다.
+_BANNED = "'\u2018\u2019\u02bc\u00b4`\"\u201c\u201d\u2033"
+
+
+def clean_for_site(text: str) -> str:
+    """따옴표류를 걷어낸다. 품종명이 'Ruby Slippers'처럼 따옴표에 싸여 들어온다."""
+    cleaned = str(text or "")
+    for ch in _BANNED:
+        cleaned = cleaned.replace(ch, "")
+    return cleaned.strip()
+
+
 def _resolve(entry: dict, payload: ReportPayload) -> str:
     """넣을 값을 정한다. value가 있으면 고정값, 없으면 ZIP에서 가져온다."""
     if "value" in entry:
-        return str(entry["value"])
-    return str(payload.fields.get(entry["field"], ""))
+        return clean_for_site(entry["value"])
+    return clean_for_site(payload.fields.get(entry["field"], ""))
 
 
 def fill(page: Page, payload: ReportPayload, field_map: dict) -> tuple[list[str], list[str]]:
@@ -360,10 +374,10 @@ def fill_char_sheet(context, page: Page, payload: ReportPayload, entry: dict, *,
     try:
         for name, item in entry.get("fields", {}).items():
             selector = item["selector"]
-            value = str(payload.fields.get(item["field"], "")).strip()
+            value = clean_for_site(payload.fields.get(item["field"], ""))
             source = "ZIP"
             if not value:
-                value = str(item.get("default", "")).strip()
+                value = clean_for_site(item.get("default", ""))
                 source = "기본문구"
             if not value:
                 log(f"      특성기술서 {name}: 넣을 값이 없음")
@@ -461,7 +475,7 @@ def verify_variety_name(context, page: Page, payload: ReportPayload, entry: dict
     품종명칭을 넣고 [목록조회]를 누른 뒤, '사용가능한 품종명입니다'가 나오면 [선택]까지 누른다.
     이미 등록된 이름이면 고르지 않고 그대로 알린다. 이름을 다시 정하는 것은 신고인 몫이다.
     """
-    name = str(payload.fields.get(entry.get("field", "품종_한글명"), "")).strip()
+    name = clean_for_site(payload.fields.get(entry.get("field", "품종_한글명"), ""))
     if not name:
         # ZIP에 없으면 화면에 사람이 넣어둔 값을 쓴다.
         try:
@@ -647,6 +661,16 @@ def _main_page(context, fallback):
     return fallback
 
 
+def _count_of(page, selector: str | None) -> int:
+    """본문에 표시된 첨부 개수를 읽는다. 실제로 등록됐는지 확인하는 데 쓴다."""
+    if not selector:
+        return -1
+    try:
+        return int((page.input_value(selector, timeout=2000) or "0").strip() or 0)
+    except Exception:
+        return -1
+
+
 def attach(context, payload: ReportPayload, field_map: dict, fallback=None) -> tuple[list[str], list[str]]:
     """임시저장 이후 열리는 [파일첨부] 팝업에 파일을 올린다."""
     attached: list[str] = []
@@ -672,6 +696,9 @@ def attach(context, payload: ReportPayload, field_map: dict, fallback=None) -> t
             remaining.append(f"{label}: [파일첨부] 버튼을 찾지 못했습니다 — 직접 올려야 함")
             continue
 
+        counter = entry.get("count_selector")
+        before = _count_of(page, counter)
+
         popup = None
         try:
             popup = _open_popup(context, page, opener, timeout=20000)
@@ -690,11 +717,19 @@ def attach(context, payload: ReportPayload, field_map: dict, fallback=None) -> t
                 pass
             # 첨부가 하나 끝나면 본문을 새로 읽어야 다음 팝업이 갱신된 상태로 열린다.
             # 이걸 안 하면 두 번째 사진이 올라간 것처럼 보이고 실제로는 등록되지 않는다.
+            # reload()는 이전 요청을 다시 보내서 '저장되었습니다'가 또 뜨는 일이 있다.
+            # 주소를 새로 여는 편이 깔끔하다.
             try:
-                page.reload(wait_until="domcontentloaded")
-                settle(page, 1200)
+                page.goto(page.url, wait_until="domcontentloaded")
+                settle(page, 1500)
             except Exception:
                 settle(page, 800)
+
+            if counter:
+                after = _count_of(page, counter)
+                log(f"      {label} 등록 개수 {before} → {after}")
+                if after <= before:
+                    remaining.append(f"{label}: 올렸지만 등록되지 않았습니다 — 직접 올려야 함")
 
     for name in field_map.get("manual_attachments", []):
         remaining.append(f"{name}: 직접 처리")

@@ -30,7 +30,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v40-charsheet-log"
+BUILD_VERSION = "v41-sanitize"
 
 
 def _norm(value: Any) -> str:
