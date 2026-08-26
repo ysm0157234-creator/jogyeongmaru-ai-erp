@@ -30,7 +30,7 @@ class PlantResearchError(RuntimeError):
     pass
 
 
-BUILD_VERSION = "v32-full-botanical-name"
+BUILD_VERSION = "v33-google-images"
 
 
 def _norm(value: Any) -> str:
@@ -247,6 +247,7 @@ _MAX_IMAGE_POOL = 40
 # 일반 이미지 검색은 '검색어와 비슷해 보이는' 사진이라 그 아래에 둔다.
 # 근접사진(closeup)에서는 iNaturalist가 꽃 클로즈업이라는 보장이 없으므로 기준점을 낮춘다.
 _SOURCE_BASE = {
+    "google-images": {"overall": 140, "closeup": 140},
     "inaturalist": {"overall": 120, "closeup": 90},
     "duckduckgo-images": {"overall": 80, "closeup": 85},
     "bing-images": {"overall": 70, "closeup": 75},
@@ -565,6 +566,16 @@ def _crawled_image_candidates(
 
         return results
 
+    def fetch_google() -> list[Any]:
+        """구글 이미지 검색(Serper). 사용자가 고를 후보의 주력이다."""
+        found: list[Any] = []
+        for query in queries:
+            try:
+                found.extend(GoogleSearchService().search_images(query, num=12))
+            except Exception as exc:
+                print(f"[plant_research_service] 구글 이미지 실패 {query!r}: {type(exc).__name__} {exc}", flush=True)
+        return found
+
     # iNaturalist와 DuckDuckGo는 서로 독립적이므로 동시에 던진다.
     def fetch_inaturalist() -> list[Any]:
         try:
@@ -574,17 +585,21 @@ def _crawled_image_candidates(
             print(f"[plant_research_service] inaturalist failed name={identity!r} error={exc}", flush=True)
             return []
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        google_future = pool.submit(fetch_google)
         inat_future = pool.submit(fetch_inaturalist)
         ddg_future = pool.submit(collect, search_duckduckgo_images, "duckduckgo")
+        google_images = google_future.result()
         inat_images = inat_future.result()
         ddg_buckets = ddg_future.result()
 
-    # 중복 제거는 소스 우선순위 순서대로 적용한다.
-    raw = keep(inat_images)
-    inat_count = len(raw)
+    # 중복 제거는 소스 우선순위 순서대로 적용한다. 구글이 1순위다.
+    raw = keep(google_images)
+    google_count = len(raw)
+    raw.extend(keep(inat_images))
+    inat_count = len(raw) - google_count
     raw.extend(_interleave([keep(bucket) for bucket in ddg_buckets]))
-    ddg_count = len(raw) - inat_count
+    ddg_count = len(raw) - google_count - inat_count
 
     if len(raw) < min_before_bing:
         raw.extend(_interleave([keep(bucket) for bucket in collect(search_bing_images, "bing")]))
@@ -592,7 +607,7 @@ def _crawled_image_candidates(
     result = _image_candidates(raw, role, prefix, search_identity, cultivar)
     print(
         f"[plant_research_service] role={role} identity={search_identity!r} "
-        f"inat={inat_count} ddg={ddg_count} total_raw={len(raw)} scored={len(result)} "
+        f"google={google_count} inat={inat_count} ddg={ddg_count} total_raw={len(raw)} scored={len(result)} "
         f"top={[(item['image_source'], item['relevance_score'], item['title'][:38]) for item in result[:3]]}",
         flush=True,
     )
@@ -1177,11 +1192,10 @@ def research_variety(
         )
         overall_crawled = overall_future.result()
         closeup_crawled = closeup_future.result()
-    overall_web = _web_page_candidates(sources, scientific_query, "overall", "overall-scientific")
-    closeup_web = _web_page_candidates(sources, scientific_query, "closeup", "closeup-scientific")
-
-    overall = _dedupe_images([*overall_crawled, *overall_web], limit=10)
-    closeup = _dedupe_images([*closeup_crawled, *closeup_web], limit=10)
+    # 웹페이지에서 <img>를 긁어오던 보조 경로는 걷어냈다. 검색결과 제목에 학명이 있으면
+    # 그 페이지의 모든 이미지가 통과해서 배너 광고·추천 콘텐츠까지 후보로 올라왔다.
+    overall = _dedupe_images(overall_crawled, limit=12)
+    closeup = _dedupe_images(closeup_crawled, limit=12)
     if overall:
         overall[0]["recommended"] = True
         used = overall[0].get("download_url") or overall[0].get("preview_url")

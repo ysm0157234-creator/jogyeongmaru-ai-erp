@@ -37,17 +37,19 @@ class ImageSearchResult:
     display_link: str
     width: int | None = None
     height: int | None = None
+    source: str = "google-images"
 
 
 class GoogleSearchService:
     """
     v17 검색 서비스.
 
-    Serper 일반 웹검색만 사용한다. 무료 계정에서 차단될 수 있는
-    Serper 이미지 API는 호출하지 않는다. 사진은 크롤링 없이 Wikimedia Commons API에서 별도로 수집한다.
+    Serper를 통해 구글 웹검색과 구글 이미지 검색을 쓴다.
+    구글 이미지 검색 페이지는 결과를 자바스크립트로만 그려서 직접 크롤링할 수 없다.
     """
 
     SEARCH_URL = "https://google.serper.dev/search"
+    IMAGE_URL = "https://google.serper.dev/images"
 
     def __init__(self) -> None:
         settings = get_settings()
@@ -219,9 +221,44 @@ class GoogleSearchService:
         self,
         query: str,
         *,
-        num: int = 10,
+        num: int = 20,
     ) -> list[ImageSearchResult]:
-        raise GoogleSearchError(
-            "v17에서는 Serper 이미지 API를 사용하지 않습니다. "
-            "Wikimedia Commons API를 사용하세요."
-        )
+        """구글 이미지 검색 결과를 가져온다.
+
+        구글 이미지 검색 페이지는 결과를 자바스크립트로만 그려서 크롤링이 불가능하다.
+        Serper의 images 엔드포인트가 그 결과를 그대로 돌려주므로 이것을 쓴다.
+        """
+        text = str(query or "").strip()
+        if not text:
+            return []
+
+        # 사진은 나라·언어를 가리지 않는 편이 후보가 넓다.
+        data = self._request(self.IMAGE_URL, {"q": text, "num": num, "gl": "us", "hl": "en"})
+
+        output: list[ImageSearchResult] = []
+        for item in (data.get("images") or [])[:num]:
+            image_url = str(item.get("imageUrl") or "").strip()
+            if not image_url:
+                continue
+            output.append(
+                ImageSearchResult(
+                    title=str(item.get("title") or text).strip(),
+                    image_url=image_url,
+                    thumbnail_url=str(item.get("thumbnailUrl") or image_url).strip(),
+                    context_url=str(item.get("link") or "").strip(),
+                    display_link=str(item.get("source") or "구글 이미지 검색").strip(),
+                    width=_safe_int(item.get("imageWidth")),
+                    height=_safe_int(item.get("imageHeight")),
+                )
+            )
+
+        print(f"[google_search_service] 구글 이미지 {text!r} → {len(output)}건", flush=True)
+        return output
+
+
+def _safe_int(value: Any) -> int | None:
+    try:
+        number = int(value)
+        return number if number > 0 else None
+    except (TypeError, ValueError):
+        return None
