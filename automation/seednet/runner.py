@@ -345,6 +345,8 @@ def fill_char_sheet(context, page: Page, payload: ReportPayload, entry: dict, *,
         for name, item in entry.get("fields", {}).items():
             value = str(payload.fields.get(item["field"], "")).strip()
             if not value:
+                value = str(item.get("default", "")).strip()
+            if not value:
                 todo.append(f"특성기술서 {name}: 값이 비어 있음")
                 continue
             try:
@@ -733,6 +735,18 @@ def run(zip_path: str | Path, *, interactive: bool = True) -> dict:
             done.append(f"품종명 중복확인 = {picked}")
         else:
             todo.append(problem)
+
+        # 중복확인에서 품종을 고르면 사이트가 관련 칸을 다시 그리면서 영문명 등을
+        # 지워버린다. 확인이 끝난 뒤 그 칸들을 다시 채운다.
+        refill = {
+            name: entry
+            for name, entry in field_map.get("fields", {}).items()
+            if name in field_map.get("refill_after_check", [])
+        }
+        if refill:
+            again, again_todo = fill(page, payload, {"fields": refill})
+            done.extend(f"{line} (중복확인 후 재입력)" for line in again)
+            todo.extend(again_todo)
 
     pressed, unpressed = click_actions(page, field_map.get("actions_after_fill", []), payload)
     done.extend(pressed)

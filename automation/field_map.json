@@ -113,7 +113,8 @@
       },
       "4. 대조품종": {
         "selector": "#fndg_with",
-        "field": "대조품종"
+        "field": "대조품종",
+        "default": "동일 종의 일반 품종"
       },
       "4. 구별되는 특성": {
         "selector": "#fndg_dstct",
@@ -121,11 +122,13 @@
       },
       "5. 균일성·안정성": {
         "selector": "#fndg_stbl",
-        "field": "균일성_안정성"
+        "field": "균일성_안정성",
+        "default": "영양번식으로 증식하여 모주의 특성이 그대로 유지되며, 재배 세대를 거듭하여도 품종 고유의 특성이 균일하게 발현된다."
       },
       "6. 추가 정보·재배 유의": {
         "selector": "#grth_content",
-        "field": "재배_유의사항"
+        "field": "재배_유의사항",
+        "default": "배수가 양호한 토양과 해당 식물에 적합한 일조 조건에서 생육이 안정적이다."
       },
       "품종육성경과 요약": {
         "selector": "#fndg_grth",
@@ -165,5 +168,9 @@
       "selector": "#bsnsList",
       "field": "종자업_등록번호"
     }
+  ],
+  "refill_after_check": [
+    "품종_영문명",
+    "작물_세부학명"
   ]
 }
